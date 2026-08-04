@@ -1,9 +1,9 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
 from publishing.models import PublishingBatch
+from publishing.services import create_publishing_batch
 from social_channels.models import SocialAccount
 
 from .forms import ContentItemForm
@@ -30,12 +30,17 @@ def content_list(request):
         elif action not in PublishingBatch.Action.values:
             messages.error(request, "실행할 작업을 선택해 주세요.")
         else:
-            with transaction.atomic():
-                batch = PublishingBatch.objects.create(owner=request.user, action=action)
-                batch.contents.set(selected_contents)
-                batch.channels.set(selected_channels)
-            messages.success(request, f"{batch.get_action_display()} 작업이 대기열에 등록되었습니다.")
-            return redirect("publishing:batch_list")
+            batch = create_publishing_batch(
+                owner=request.user,
+                contents=selected_contents,
+                channels=selected_channels,
+                action=action,
+            )
+            messages.success(
+                request,
+                f"{batch.get_action_display()} 작업 {batch.tasks.count()}건이 생성되었습니다.",
+            )
+            return redirect("publishing:batch_detail", pk=batch.pk)
 
     return render(
         request,
