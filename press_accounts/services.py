@@ -4,9 +4,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from html import unescape
+from io import BytesIO
+from pathlib import Path
 from typing import Any
+from urllib.request import Request, urlopen
 
 import feedparser
+from PIL import Image
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 from django.utils.html import strip_tags
@@ -29,7 +34,6 @@ def _entry_value(entry: Any, key: str, default: str = "") -> str:
 
 
 def _published_at(entry: Any):
-    """Return an aware datetime without depending on removed Django timezone.utc."""
     for key in ("published_parsed", "updated_parsed"):
         value = entry.get(key)
         if value:
@@ -65,14 +69,12 @@ def _body(entry: Any) -> str:
 
 
 def _image_url(entry: Any) -> str:
-    media_content = entry.get("media_content", []) or []
-    for media in media_content:
+    for media in entry.get("media_content", []) or []:
         url = str(media.get("url", "")).strip()
         if url:
             return url
 
-    media_thumbnail = entry.get("media_thumbnail", []) or []
-    for media in media_thumbnail:
+    for media in entry.get("media_thumbnail", []) or []:
         url = str(media.get("url", "")).strip()
         if url:
             return url
@@ -83,6 +85,36 @@ def _image_url(entry: Any) -> str:
         if url and (not media_type or media_type.startswith("image/")):
             return url
     return ""
+
+
+def _save_webp_image(item: ContentItem, image_url: str) -> bool:
+    """Download a remote RSS image and store a bounded WebP copy."""
+    if not image_url or item.representative_image:
+        return False
+
+    try:
+        request = Request(image_url, headers={"User-Agent": "SNSGROWUP/1.0"})
+        with urlopen(request, timeout=12) as response:
+            raw = response.read(8 * 1024 * 1024 + 1)
+        if not raw or len(raw) > 8 * 1024 * 1024:
+            return False
+
+        with Image.open(BytesIO(raw)) as source:
+            image = source.convert("RGB")
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(output, format="WEBP", quality=82, method=6)
+
+        stem = Path(item.external_guid or str(item.pk)).stem[:60] or str(item.pk)
+        safe_stem = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in stem)
+        item.representative_image.save(
+            f"rss-{item.pk}-{safe_stem}.webp",
+            ContentFile(output.getvalue()),
+            save=True,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def inspect_feed(profile: PressProfile) -> dict[str, Any]:
@@ -130,17 +162,16 @@ def collect_feed(profile: PressProfile, *, limit: int = 100) -> RSSCollectResult
                 external_guid=guid[:500],
                 defaults=defaults,
             )
+
+            image_url = _image_url(entry)
+            if image_url and not item.representative_image:
+                _save_webp_image(item, image_url)
+
             if created:
-                # 원격 이미지는 다음 발행 변환 단계에서 별도 필드로 정식 관리한다.
-                image_url = _image_url(entry)
-                if image_url and not item.body:
-                    item.body = image_url
-                    item.save(update_fields=["body"])
                 result.created += 1
             else:
                 result.skipped += 1
         except Exception:
-            # 한 기사 데이터가 깨져도 전체 RSS 수집을 중단하지 않는다.
             result.failed += 1
 
     profile.rss_verified = True
