@@ -1,6 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+
+from publishing.models import PublishingBatch
+from social_channels.models import SocialAccount
 
 from .forms import ContentItemForm
 from .models import ContentItem
@@ -9,7 +13,39 @@ from .models import ContentItem
 @login_required
 def content_list(request):
     items = ContentItem.objects.filter(owner=request.user).order_by("-created_at")
-    return render(request, "contents/content_list.html", {"items": items})
+    channels = SocialAccount.objects.filter(user=request.user, is_active=True).select_related("platform")
+
+    if request.method == "POST":
+        content_ids = request.POST.getlist("content_ids")
+        channel_ids = request.POST.getlist("channel_ids")
+        action = request.POST.get("action", "")
+
+        selected_contents = ContentItem.objects.filter(owner=request.user, pk__in=content_ids)
+        selected_channels = SocialAccount.objects.filter(user=request.user, is_active=True, pk__in=channel_ids)
+
+        if not selected_contents.exists():
+            messages.error(request, "작업할 콘텐츠를 한 건 이상 선택해 주세요.")
+        elif not selected_channels.exists():
+            messages.error(request, "발행할 SNS 채널을 한 개 이상 선택해 주세요.")
+        elif action not in PublishingBatch.Action.values:
+            messages.error(request, "실행할 작업을 선택해 주세요.")
+        else:
+            with transaction.atomic():
+                batch = PublishingBatch.objects.create(owner=request.user, action=action)
+                batch.contents.set(selected_contents)
+                batch.channels.set(selected_channels)
+            messages.success(request, f"{batch.get_action_display()} 작업이 대기열에 등록되었습니다.")
+            return redirect("publishing:batch_list")
+
+    return render(
+        request,
+        "contents/content_list.html",
+        {
+            "items": items,
+            "channels": channels,
+            "action_choices": PublishingBatch.Action.choices,
+        },
+    )
 
 
 @login_required
