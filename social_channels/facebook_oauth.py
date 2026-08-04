@@ -31,11 +31,11 @@ def authorization_url(*, redirect_uri: str, state: str) -> str:
 
 def _get_json(url: str) -> dict:
     try:
-        with urlopen(url, timeout=15) as response:
+        with urlopen(url, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise FacebookOAuthError(f"Facebook 응답 오류: {body[:300]}") from exc
+        raise FacebookOAuthError(f"Facebook 응답 오류: {body[:500]}") from exc
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise FacebookOAuthError(f"Facebook 연결 실패: {exc}") from exc
 
@@ -57,6 +57,45 @@ def fetch_profile(*, access_token: str) -> dict:
     return _get_json(
         f"https://graph.facebook.com/{settings.FACEBOOK_GRAPH_VERSION}/me?{urlencode(params)}"
     )
+
+
+def fetch_permissions(*, access_token: str) -> list[str]:
+    params = {"access_token": access_token}
+    data = _get_json(
+        f"https://graph.facebook.com/{settings.FACEBOOK_GRAPH_VERSION}/me/permissions?{urlencode(params)}"
+    )
+    return [item.get("permission", "") for item in data.get("data", []) if item.get("status") == "granted"]
+
+
+def fetch_managed_pages(*, access_token: str) -> list[dict]:
+    params = {
+        "fields": "id,name,access_token,category,picture{url},link,tasks",
+        "limit": "100",
+        "access_token": access_token,
+    }
+    data = _get_json(
+        f"https://graph.facebook.com/{settings.FACEBOOK_GRAPH_VERSION}/me/accounts?{urlencode(params)}"
+    )
+    pages = []
+    for item in data.get("data", []):
+        page_id = str(item.get("id", "")).strip()
+        page_token = str(item.get("access_token", "")).strip()
+        if not page_id or not page_token:
+            continue
+        picture = item.get("picture") or {}
+        picture_data = picture.get("data") or {}
+        pages.append(
+            {
+                "id": page_id,
+                "name": str(item.get("name", "")).strip() or page_id,
+                "access_token": page_token,
+                "category": str(item.get("category", "")).strip(),
+                "link": str(item.get("link", "")).strip(),
+                "picture_url": str(picture_data.get("url", "")).strip(),
+                "tasks": item.get("tasks") or [],
+            }
+        )
+    return pages
 
 
 def expiry_datetime(token_data: dict):
