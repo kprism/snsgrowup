@@ -19,14 +19,8 @@ ALLOWED_HOSTS = env.list(
     default=["localhost", "127.0.0.1", ".githubpreview.dev", ".app.github.dev"],
 )
 
-# GitHub Codespaces and production reverse proxies terminate HTTPS before Django.
-# Respect the forwarded public host/protocol so OAuth callback URLs never become localhost.
-USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-CSRF_TRUSTED_ORIGINS = env.list(
-    "CSRF_TRUSTED_ORIGINS",
-    default=["https://*.app.github.dev", "https://*.githubpreview.dev"],
-)
+USE_X_FORWARDED_HOST = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -110,15 +104,22 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# Accept both the original META_* names entered in Codespaces and the clearer
-# FACEBOOK_* names documented by the application. FACEBOOK_* wins when both exist.
+# 기존 META_* 이름과 FACEBOOK_* 이름을 모두 지원한다.
 FACEBOOK_APP_ID = env("FACEBOOK_APP_ID", default=env("META_APP_ID", default=""))
 FACEBOOK_APP_SECRET = env("FACEBOOK_APP_SECRET", default=env("META_APP_SECRET", default=""))
+FACEBOOK_LOGIN_CONFIG_ID = env(
+    "FACEBOOK_LOGIN_CONFIG_ID",
+    default=env("META_LOGIN_CONFIG_ID", default=""),
+)
 FACEBOOK_GRAPH_VERSION = env(
     "FACEBOOK_GRAPH_VERSION",
-    default=env("META_GRAPH_VERSION", default="v23.0"),
+    default=env("META_GRAPH_VERSION", default="v24.0"),
 )
+
+# 일반 Facebook Login의 직접 scope 방식은 개발용 최소 권한만 사용한다.
+# 비즈니스용 Facebook 로그인에서는 Meta 구성(Configuration)에 권한을 저장하고
+# FACEBOOK_LOGIN_CONFIG_ID를 OAuth 요청에 전달한다.
 FACEBOOK_OAUTH_SCOPES = env.list(
     "FACEBOOK_OAUTH_SCOPES",
-    default=["public_profile", "email", "pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+    default=["public_profile"],
 )
