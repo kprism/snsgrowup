@@ -7,5 +7,6 @@ djangorestframework
 celery
 redis
 requests
+openai
 gunicorn
 whitenoise
