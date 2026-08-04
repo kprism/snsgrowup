@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Facebook 게시 결과 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div><span class="eyebrow">FACEBOOK PUBLISH</span><h1>Facebook 게시</h1><p>게시 요청을 처리하고 있습니다. 완료되면 결과가 자동으로 표시됩니다.</p></div>
+  <a class="button soft" href="{% url 'contents:content_list' %}">콘텐츠로 돌아가기</a>
+</section>
+
+{% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'warning' or message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
+
+<section class="panel compact-panel" id="publishResult" data-status-url="{% url 'publishing:publish_status' batch.pk %}">
+  <div class="panel-head"><div><h2 id="publishTitle">게시 중입니다</h2><p id="publishMessage">Facebook에 콘텐츠를 전송하고 있습니다.</p></div><strong id="publishPercent">0%</strong></div>
+  <div class="panel-body">
+    <div class="publishing-progress large"><span id="publishBar" style="width:0%"></span></div>
+    <div class="task-table-wrap" style="margin-top:16px">
+      <table class="task-table">
+        <thead><tr><th>콘텐츠</th><th>채널</th><th>상태</th><th>결과</th></tr></thead>
+        <tbody id="publishRows"><tr><td colspan="4" class="table-empty">게시 결과를 확인하고 있습니다.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="sticky-action-bar" id="publishActions" hidden>
+      <a class="button soft" href="{% url 'publishing:batch_detail' batch.pk %}">상세 기록</a>
+      <a class="button primary" href="{% url 'contents:content_list' %}">다른 콘텐츠 게시</a>
+    </div>
+  </div>
+</section>
+<script>
+(() => {
+  const shell = document.getElementById('publishResult');
+  const title = document.getElementById('publishTitle');
+  const message = document.getElementById('publishMessage');
+  const percent = document.getElementById('publishPercent');
+  const bar = document.getElementById('publishBar');
+  const rows = document.getElementById('publishRows');
+  const actions = document.getElementById('publishActions');
+
+  const escapeHtml = value => String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+  const render = data => {
+    percent.textContent = `${data.percent}%`;
+    bar.style.width = `${data.percent}%`;
+    rows.innerHTML = data.tasks.map(task => {
+      let result = '<span class="muted-text">처리 중</span>';
+      if (task.url) result = `<a href="${escapeHtml(task.url)}" target="_blank" rel="noopener">게시물 열기</a>`;
+      else if (task.error) result = `<span class="task-error">${escapeHtml(task.error)}</span>`;
+      return `<tr><td><strong>${escapeHtml(task.content)}</strong></td><td>Facebook · ${escapeHtml(task.channel)}</td><td><span class="status-chip status-${escapeHtml(task.status)}">${escapeHtml(task.status_label)}</span></td><td>${result}</td></tr>`;
+    }).join('');
+
+    if (data.done) {
+      actions.hidden = false;
+      if (data.failed || data.connection_required) {
+        title.textContent = '게시 결과를 확인해 주세요';
+        message.textContent = `성공 ${data.success}건 · 실패 ${data.failed + data.connection_required}건`;
+      } else {
+        title.textContent = '게시가 완료되었습니다';
+        message.textContent = `Facebook 게시 ${data.success}건이 완료되었습니다.`;
+      }
+      return true;
+    }
+    title.textContent = '게시 중입니다';
+    message.textContent = `전체 ${data.total}건 중 ${data.success}건 완료`;
+    return false;
+  };
+
+  const poll = async () => {
+    try {
+      const response = await fetch(shell.dataset.statusUrl, {credentials:'same-origin'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || '게시 상태를 확인하지 못했습니다.');
+      if (!render(data)) window.setTimeout(poll, 700);
+    } catch (error) {
+      title.textContent = '상태 확인이 지연되고 있습니다';
+      message.textContent = error.message;
+      window.setTimeout(poll, 1800);
+    }
+  };
+  poll();
+})();
+</script>
+{% endblock %}
