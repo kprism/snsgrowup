@@ -7,6 +7,7 @@ urlpatterns = [
     path("", include("dashboard.urls")),
     path("accounts/", include("accounts.urls")),
     path("channels/", include("social_channels.urls")),
+    path("contents/", include("contents.urls")),
     path("admin/", admin.site.urls),
 ]
 
