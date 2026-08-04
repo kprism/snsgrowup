@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -59,13 +60,17 @@ def account_delete(request, pk):
     return render(request, "social_channels/account_confirm_delete.html", {"account": account})
 
 
+def _facebook_callback_uri(request):
+    return request.build_absolute_uri(reverse("social_channels:facebook_callback"))
+
+
 @login_required
 def facebook_connect(request, pk):
     account = get_object_or_404(SocialAccount.objects.select_related("platform"), pk=pk, user=request.user)
     if account.platform.code != "facebook":
         return HttpResponseBadRequest("Facebook 계정만 연결할 수 있습니다.")
 
-    redirect_uri = request.build_absolute_uri(request.path.replace("connect/", "callback/"))
+    redirect_uri = _facebook_callback_uri(request)
     if not facebook_oauth.is_configured():
         return render(
             request,
@@ -74,8 +79,10 @@ def facebook_connect(request, pk):
         )
 
     state = secrets.token_urlsafe(32)
-    request.session[f"facebook_oauth_state_{account.pk}"] = state
+    request.session["facebook_oauth_state"] = state
+    request.session["facebook_oauth_account_id"] = account.pk
     request.session.modified = True
+
     account.connection_status = SocialAccount.ConnectionStatus.PENDING
     account.last_connection_error = ""
     account.save(update_fields=["connection_status", "last_connection_error", "updated_at"])
@@ -83,9 +90,22 @@ def facebook_connect(request, pk):
 
 
 @login_required
-def facebook_callback(request, pk):
-    account = get_object_or_404(SocialAccount.objects.select_related("platform"), pk=pk, user=request.user)
-    expected_state = request.session.pop(f"facebook_oauth_state_{account.pk}", None)
+def facebook_callback(request):
+    account_id = request.session.pop("facebook_oauth_account_id", None)
+    expected_state = request.session.pop("facebook_oauth_state", None)
+    request.session.modified = True
+
+    if not account_id:
+        messages.error(request, "Facebook 연결 세션이 만료되었습니다. 채널 화면에서 다시 시작해 주세요.")
+        return redirect("social_channels:account_list")
+
+    account = get_object_or_404(
+        SocialAccount.objects.select_related("platform"),
+        pk=account_id,
+        user=request.user,
+        platform__code="facebook",
+    )
+
     if not expected_state or request.GET.get("state") != expected_state:
         account.connection_status = SocialAccount.ConnectionStatus.ERROR
         account.last_connection_error = "OAuth 상태값이 일치하지 않습니다. 다시 연결해 주세요."
@@ -104,7 +124,7 @@ def facebook_callback(request, pk):
     if not code:
         return HttpResponseBadRequest("인증 코드가 없습니다.")
 
-    redirect_uri = request.build_absolute_uri(request.path)
+    redirect_uri = _facebook_callback_uri(request)
     try:
         token_data = facebook_oauth.exchange_code(code=code, redirect_uri=redirect_uri)
         user_access_token = token_data["access_token"]
@@ -118,14 +138,13 @@ def facebook_callback(request, pk):
         messages.error(request, f"Facebook 연결에 실패했습니다: {exc}")
         return redirect("social_channels:account_list")
 
+    expires_at = facebook_oauth.expiry_datetime(token_data)
     request.session[f"facebook_pages_{account.pk}"] = pages
     request.session[f"facebook_profile_{account.pk}"] = {
         "id": str(profile.get("id", "")),
         "name": str(profile.get("name", "")),
         "permissions": permissions,
-        "expires_at": facebook_oauth.expiry_datetime(token_data).isoformat()
-        if facebook_oauth.expiry_datetime(token_data)
-        else "",
+        "expires_at": expires_at.isoformat() if expires_at else "",
     }
     request.session.modified = True
 
