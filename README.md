@@ -24,5 +24,13 @@ SNS 채널 통합 발행, 성장활동 관리, 성과분석, 신문사 RSS 기�
 GitHub Codespace를 만든 뒤 터미널에서 다음을 실행합니다.
 
 ```bash
-bash scripts/bootstrap.sh
+bash scripts/run-bootstrap.sh
 ```
+
+완료 후:
+
+```bash
+docker compose up --build
+```
+
+Codespace에서 전달된 8000번 포트를 열어 개발 화면을 확인합니다.
