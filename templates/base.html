@@ -8,17 +8,50 @@
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="{% url 'home' %}">SNSGROWUP</a>
-    <nav>
+  <header class="topbar">
+    <div class="topbar-left">
+      <a class="brand" href="{% url 'home' %}"><span class="brand-mark">S</span><span>SNSGROWUP</span></a>
+    </div>
+    <div class="topbar-right">
       {% if user.is_authenticated %}
-        <span class="user-name">{{ user.display_name }}</span>
+        <button class="icon-button" type="button" aria-label="알림">🔔</button>
+        <span class="user-chip">{{ user.display_name }}</span>
         <form method="post" action="{% url 'accounts:logout' %}" class="inline-form">{% csrf_token %}<button class="text-button">로그아웃</button></form>
       {% else %}
-        <a href="{% url 'accounts:login' %}">로그인</a>
+        <a class="top-login" href="{% url 'accounts:login' %}">로그인</a>
       {% endif %}
-    </nav>
+    </div>
   </header>
-  <main class="page-shell">{% block content %}{% endblock %}</main>
+
+  <div class="app-layout">
+    {% if user.is_authenticated %}
+    <aside class="sidebar">
+      <nav class="sidebar-nav">
+        <p class="nav-section">운영</p>
+        <a class="nav-item" href="{% url 'home' %}"><span>▦</span><b>대시보드</b></a>
+        <a class="nav-item" href="{% url 'social_channels:account_list' %}"><span>◎</span><b>SNS 채널</b></a>
+        <a class="nav-item muted" href="#"><span>✎</span><b>콘텐츠</b><small>준비 중</small></a>
+        <a class="nav-item muted" href="#"><span>↗</span><b>발행 관리</b><small>준비 중</small></a>
+        <p class="nav-section">성장과 분석</p>
+        <a class="nav-item muted" href="#"><span>⌁</span><b>성장 액션</b><small>준비 중</small></a>
+        <a class="nav-item muted" href="#"><span>⌗</span><b>통계 분석</b><small>준비 중</small></a>
+        {% if user.account_type == 'press' %}<a class="nav-item muted" href="#"><span>▤</span><b>RSS 기사</b><small>준비 중</small></a>{% endif %}
+      </nav>
+    </aside>
+    {% endif %}
+
+    <main class="main-content {% if not user.is_authenticated %}guest{% endif %}">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% if user.is_authenticated %}
+  <nav class="mobile-nav">
+    <a href="{% url 'home' %}"><span>▦</span><b>홈</b></a>
+    <a href="{% url 'social_channels:account_list' %}"><span>◎</span><b>채널</b></a>
+    <a href="#"><span>✎</span><b>콘텐츠</b></a>
+    <a href="#"><span>⌗</span><b>통계</b></a>
+  </nav>
+  {% endif %}
 </body>
 </html>
