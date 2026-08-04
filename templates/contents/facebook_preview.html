@@ -7,7 +7,7 @@
   <div>
     <span class="eyebrow">FACEBOOK PREVIEW</span>
     <h1>Facebook 게시 미리보기</h1>
-    <p>게시 내용을 확인한 뒤 바로 Facebook에 게시합니다.</p>
+    <p>게시할 콘텐츠를 선택하고 한 번에 Facebook에 게시합니다.</p>
   </div>
 </section>
 
@@ -25,10 +25,19 @@
     <label class="hashtag-field"><span>공통 해시태그</span><input type="text" name="hashtags" placeholder="#창원 #경남 #지역뉴스"></label>
   </section>
 
+  <section class="preview-selection-bar">
+    <label class="preview-select-all"><input type="checkbox" id="previewSelectAll" checked> 전체선택</label>
+    <strong><span id="previewSelectedCount">{{ contents|length }}</span>건 선택</strong>
+  </section>
+
   <div class="preview-review-list">
   {% for item in contents %}
-    <details class="preview-review-item" {% if forloop.first %}open{% endif %}>
+    <details class="preview-review-item" data-preview-item {% if forloop.first %}open{% endif %}>
       <summary>
+        <label class="preview-item-check" onclick="event.stopPropagation();">
+          <input type="checkbox" name="publish_content_ids" value="{{ item.pk }}" class="preview-content-check" checked>
+          <span class="sr-only">{{ item.title }} 선택</span>
+        </label>
         <div class="preview-thumb">{% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="">{% else %}<span class="icon-3d icon-3d-document"><i></i></span>{% endif %}</div>
         <div class="preview-summary-main">
           <div class="row-meta"><span class="status-chip">{{ item.get_source_type_display }}</span><span>{{ item.created_at|date:"Y.m.d H:i" }}</span></div>
@@ -66,19 +75,50 @@
 
   <div class="sticky-action-bar">
     <button type="submit" name="command" value="cancel" class="button soft">선택 화면으로 돌아가기</button>
-    <button type="submit" name="command" value="confirm" class="button primary" id="publishNowButton">지금 게시</button>
+    <button type="submit" name="command" value="confirm" class="button primary" id="publishNowButton">선택한 콘텐츠 일괄게시</button>
   </div>
 </form>
 <script>
 (() => {
   const form = document.getElementById('facebookPublishForm');
   const button = document.getElementById('publishNowButton');
-  if (!form || !button) return;
-  form.addEventListener('submit', event => {
-    if (event.submitter !== button) return;
-    button.disabled = true;
-    button.textContent = '게시 중…';
+  const selectAll = document.getElementById('previewSelectAll');
+  const checks = [...document.querySelectorAll('.preview-content-check')];
+  const count = document.getElementById('previewSelectedCount');
+
+  const sync = () => {
+    const selected = checks.filter(check => check.checked).length;
+    count.textContent = selected;
+    selectAll.checked = selected === checks.length && checks.length > 0;
+    selectAll.indeterminate = selected > 0 && selected < checks.length;
+    button.disabled = selected === 0;
+    button.textContent = selected > 1 ? `선택한 ${selected}건 일괄게시` : selected === 1 ? '선택한 콘텐츠 게시' : '게시할 콘텐츠를 선택하세요';
+    checks.forEach(check => {
+      const item = check.closest('[data-preview-item]');
+      if (item) item.classList.toggle('is-unselected', !check.checked);
+    });
+  };
+
+  selectAll.addEventListener('change', () => {
+    checks.forEach(check => { check.checked = selectAll.checked; });
+    sync();
   });
+  checks.forEach(check => check.addEventListener('change', sync));
+
+  if (form && button) {
+    form.addEventListener('submit', event => {
+      if (event.submitter !== button) return;
+      const selected = checks.filter(check => check.checked).length;
+      if (!selected) {
+        event.preventDefault();
+        alert('게시할 콘텐츠를 한 건 이상 선택해 주세요.');
+        return;
+      }
+      button.disabled = true;
+      button.textContent = selected > 1 ? `${selected}건 게시 중…` : '게시 중…';
+    });
+  }
+  sync();
 })();
 </script>
 {% endblock %}
