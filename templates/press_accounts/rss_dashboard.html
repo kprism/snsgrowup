@@ -2,7 +2,7 @@
 {% block title %}RSS 관리 | SNSGROWUP{% endblock %}
 {% block content %}
 <section class="page-head compact-head">
-  <div><span class="eyebrow">RSS</span><h1>RSS 관리</h1><p>신문사 기사를 검사하고 콘텐츠 목록으로 수집합니다.</p></div>
+  <div class="page-head-with-icon"><span class="icon-3d icon-3d-rss" aria-hidden="true"><i></i></span><div><span class="eyebrow">RSS</span><h1>RSS 관리</h1><p>신문사 기사를 검사하고 콘텐츠 목록으로 수집합니다.</p></div></div>
   <a class="button soft" href="{% url 'contents:content_list' %}">수집 기사 보기</a>
 </section>
 
@@ -20,11 +20,37 @@
     <div class="rss-address"><span>RSS 주소</span><a href="{{ profile.rss_url }}" target="_blank" rel="noopener">{{ profile.rss_url }}</a></div>
     <div class="rss-actions">
       <form method="post" action="{% url 'press_accounts:rss_check' %}">{% csrf_token %}<button class="button soft" type="submit">연결 검사</button></form>
-      <form method="post" action="{% url 'press_accounts:rss_collect' %}">{% csrf_token %}<button class="button primary" type="submit">지금 수집</button></form>
+      <form method="post" action="{% url 'press_accounts:rss_collect' %}" id="rssCollectForm">{% csrf_token %}<button class="button primary" type="submit" id="rssCollectButton">지금 수집</button></form>
     </div>
+  </div>
+  <div class="rss-progress" id="rssProgress" hidden aria-live="polite">
+    <div class="rss-progress-copy"><span class="icon-3d icon-3d-rss" aria-hidden="true"><i></i></span><div><strong>RSS 기사와 이미지를 수집하고 있습니다</strong><small><span id="rssElapsed">0초</span> 경과 · 완료되면 자동으로 화면이 갱신됩니다.</small></div></div>
+    <div class="rss-progress-track"><span></span></div>
   </div>
   {% else %}
   <div class="empty-state"><h2>신문사 정보가 없습니다</h2><p>신문사 회원가입 정보에서 RSS 주소를 먼저 등록해야 합니다.</p></div>
   {% endif %}
 </section>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+  const form = document.getElementById('rssCollectForm');
+  const button = document.getElementById('rssCollectButton');
+  const progress = document.getElementById('rssProgress');
+  const elapsed = document.getElementById('rssElapsed');
+  if (!form || !button || !progress || !elapsed) return;
+  form.addEventListener('submit', function () {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = '수집 중…';
+    progress.hidden = false;
+    const startedAt = Date.now();
+    window.setInterval(function () {
+      const seconds = Math.floor((Date.now() - startedAt) / 1000);
+      elapsed.textContent = seconds < 60 ? seconds + '초' : Math.floor(seconds / 60) + '분 ' + (seconds % 60) + '초';
+    }, 1000);
+  });
+})();
+</script>
 {% endblock %}
