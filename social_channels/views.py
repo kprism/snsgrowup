@@ -107,8 +107,10 @@ def facebook_callback(request, pk):
     redirect_uri = request.build_absolute_uri(request.path)
     try:
         token_data = facebook_oauth.exchange_code(code=code, redirect_uri=redirect_uri)
-        access_token = token_data["access_token"]
-        profile = facebook_oauth.fetch_profile(access_token=access_token)
+        user_access_token = token_data["access_token"]
+        profile = facebook_oauth.fetch_profile(access_token=user_access_token)
+        permissions = facebook_oauth.fetch_permissions(access_token=user_access_token)
+        pages = facebook_oauth.fetch_managed_pages(access_token=user_access_token)
     except (facebook_oauth.FacebookOAuthError, KeyError) as exc:
         account.connection_status = SocialAccount.ConnectionStatus.ERROR
         account.last_connection_error = str(exc)
@@ -116,23 +118,77 @@ def facebook_callback(request, pk):
         messages.error(request, f"Facebook 연결에 실패했습니다: {exc}")
         return redirect("social_channels:account_list")
 
-    account.external_account_id = str(profile.get("id", ""))
-    account.profile_name = profile.get("name") or account.profile_name
-    account.access_token = access_token
-    account.token_expires_at = facebook_oauth.expiry_datetime(token_data)
-    account.connected_at = timezone.now()
-    account.connection_status = SocialAccount.ConnectionStatus.CONNECTED
-    account.last_connection_error = ""
-    account.granted_scopes = []
-    account.save()
+    request.session[f"facebook_pages_{account.pk}"] = pages
+    request.session[f"facebook_profile_{account.pk}"] = {
+        "id": str(profile.get("id", "")),
+        "name": str(profile.get("name", "")),
+        "permissions": permissions,
+        "expires_at": facebook_oauth.expiry_datetime(token_data).isoformat()
+        if facebook_oauth.expiry_datetime(token_data)
+        else "",
+    }
+    request.session.modified = True
 
-    PublishingTask.objects.filter(
-        channel=account,
-        status=PublishingTask.Status.CONNECTION_REQUIRED,
-    ).update(status=PublishingTask.Status.PENDING, error_message="")
+    if not pages:
+        account.connection_status = SocialAccount.ConnectionStatus.ERROR
+        account.last_connection_error = (
+            "관리 가능한 Facebook 페이지를 찾지 못했습니다. "
+            "페이지 관리자 권한과 pages_show_list 권한을 확인해 주세요."
+        )
+        account.save(update_fields=["connection_status", "last_connection_error", "updated_at"])
+        messages.error(request, account.last_connection_error)
+        return redirect("social_channels:account_list")
 
-    messages.success(request, "Facebook 계정 연결이 완료되었습니다.")
-    return redirect("social_channels:account_list")
+    return redirect("social_channels:facebook_page_select", pk=account.pk)
+
+
+@login_required
+def facebook_page_select(request, pk):
+    account = get_object_or_404(SocialAccount.objects.select_related("platform"), pk=pk, user=request.user)
+    if account.platform.code != "facebook":
+        return HttpResponseBadRequest("Facebook 계정만 연결할 수 있습니다.")
+
+    session_key = f"facebook_pages_{account.pk}"
+    pages = request.session.get(session_key) or []
+    profile = request.session.get(f"facebook_profile_{account.pk}") or {}
+    if not pages:
+        messages.warning(request, "페이지 선택 정보가 만료되었습니다. Facebook 연결을 다시 시작해 주세요.")
+        return redirect("social_channels:facebook_connect", pk=account.pk)
+
+    if request.method == "POST":
+        selected_id = request.POST.get("page_id", "").strip()
+        selected = next((page for page in pages if page.get("id") == selected_id), None)
+        if not selected:
+            messages.error(request, "연결할 Facebook 페이지를 선택해 주세요.")
+        else:
+            account.external_account_id = selected["id"]
+            account.profile_name = selected["name"]
+            account.profile_url = selected.get("link") or f"https://www.facebook.com/{selected['id']}"
+            account.access_token = selected["access_token"]
+            account.token_expires_at = None
+            account.connected_at = timezone.now()
+            account.connection_status = SocialAccount.ConnectionStatus.CONNECTED
+            account.last_connection_error = ""
+            account.granted_scopes = profile.get("permissions") or []
+            account.save()
+
+            request.session.pop(session_key, None)
+            request.session.pop(f"facebook_profile_{account.pk}", None)
+            request.session.modified = True
+
+            PublishingTask.objects.filter(
+                channel=account,
+                status=PublishingTask.Status.CONNECTION_REQUIRED,
+            ).update(status=PublishingTask.Status.PENDING, error_message="")
+
+            messages.success(request, f"Facebook 페이지 ‘{account.profile_name}’ 연결이 완료되었습니다.")
+            return redirect("social_channels:account_list")
+
+    return render(
+        request,
+        "social_channels/facebook_page_select.html",
+        {"account": account, "pages": pages, "facebook_profile": profile},
+    )
 
 
 @login_required
