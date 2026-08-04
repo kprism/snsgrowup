@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}콘텐츠 삭제 | SNSGROWUP{% endblock %}
+{% block content %}<section class="form-shell"><div class="form-intro"><span class="eyebrow">DELETE</span><h1>콘텐츠를 삭제할까요?</h1><p>{{ item.title }}</p></div><form method="post" class="form-card compact">{% csrf_token %}<p>삭제한 콘텐츠는 복구할 수 없습니다.</p><div class="actions"><button class="button danger" type="submit">삭제</button><a class="button soft" href="{% url 'contents:content_list' %}">취소</a></div></form></section>{% endblock %}
