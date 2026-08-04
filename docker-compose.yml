@@ -34,5 +34,19 @@ services:
       redis:
         condition: service_started
 
+  worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A config worker --loglevel=INFO --concurrency=2
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
 volumes:
   postgres_data:
