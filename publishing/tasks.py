@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import requests
+from PIL import Image
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
-
-from social_channels.models import SocialAccount
 
 from .models import PublishingTask
 
@@ -15,6 +15,16 @@ from .models import PublishingTask
 def _final_message(payload: dict) -> str:
     parts = [str(payload.get("message") or "").strip(), str(payload.get("hashtags") or "").strip()]
     return "\n\n".join(part for part in parts if part)
+
+
+def _facebook_image_file(image_path: Path):
+    """Keep local WebP storage, but upload a JPEG byte stream for broad API compatibility."""
+    with Image.open(image_path) as source:
+        image = source.convert("RGB")
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=90, optimize=True)
+    output.seek(0)
+    return output
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=30)
@@ -73,17 +83,18 @@ def publish_facebook_task(self, publishing_task_id: int):
             image_path = Path(task.content.representative_image.path)
             if not image_path.exists():
                 raise ValueError("대표이미지 파일을 찾을 수 없습니다.")
-            with image_path.open("rb") as image_file:
-                response = requests.post(
-                    f"{graph_root}/photos",
-                    data={
-                        "caption": message,
-                        "access_token": token,
-                        "published": "true",
-                    },
-                    files={"source": (image_path.name, image_file, "image/webp")},
-                    timeout=60,
-                )
+            image_file = _facebook_image_file(image_path)
+            response = requests.post(
+                f"{graph_root}/photos",
+                data={
+                    "caption": message,
+                    "access_token": token,
+                    "published": "true",
+                },
+                files={"source": (f"{image_path.stem}.jpg", image_file, "image/jpeg")},
+                timeout=60,
+            )
+            image_file.close()
         else:
             data = {"message": message, "access_token": token}
             if include_link:
