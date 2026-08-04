@@ -11,6 +11,7 @@ from .models import ContentItem
 
 
 PREVIEW_SESSION_KEY = "publishing_preview_selection"
+BULK_DELETE_ACTION = "delete"
 
 
 def _selected_objects(*, user, content_ids, channel_ids):
@@ -23,6 +24,15 @@ def _selected_objects(*, user, content_ids, channel_ids):
     return contents, channels
 
 
+def _delete_selected_contents(*, user, content_ids) -> int:
+    selected = list(ContentItem.objects.filter(owner=user, pk__in=content_ids))
+    for item in selected:
+        if item.representative_image:
+            item.representative_image.delete(save=False)
+        item.delete()
+    return len(selected)
+
+
 @login_required
 def content_list(request):
     items = ContentItem.objects.filter(owner=request.user).order_by("-created_at")
@@ -33,15 +43,22 @@ def content_list(request):
         channel_ids = request.POST.getlist("channel_ids")
         action = request.POST.get("action", "")
 
+        if not content_ids:
+            messages.error(request, "작업할 콘텐츠를 한 건 이상 선택해 주세요.")
+            return redirect("contents:content_list")
+
+        if action == BULK_DELETE_ACTION:
+            deleted_count = _delete_selected_contents(user=request.user, content_ids=content_ids)
+            messages.success(request, f"선택한 콘텐츠 {deleted_count}건을 삭제했습니다.")
+            return redirect("contents:content_list")
+
         selected_contents, selected_channels = _selected_objects(
             user=request.user,
             content_ids=content_ids,
             channel_ids=channel_ids,
         )
 
-        if not selected_contents.exists():
-            messages.error(request, "작업할 콘텐츠를 한 건 이상 선택해 주세요.")
-        elif not selected_channels.exists():
+        if not selected_channels.exists():
             messages.error(request, "발행할 SNS 채널을 한 개 이상 선택해 주세요.")
         elif action not in PublishingBatch.Action.values:
             messages.error(request, "실행할 작업을 선택해 주세요.")
@@ -66,13 +83,16 @@ def content_list(request):
             )
             return redirect("publishing:batch_detail", pk=batch.pk)
 
+    action_choices = list(PublishingBatch.Action.choices) + [
+        (BULK_DELETE_ACTION, "선택 콘텐츠 삭제"),
+    ]
     return render(
         request,
         "contents/content_list.html",
         {
             "items": items,
             "channels": channels,
-            "action_choices": PublishingBatch.Action.choices,
+            "action_choices": action_choices,
         },
     )
 
@@ -176,6 +196,8 @@ def content_update(request, pk):
 def content_delete(request, pk):
     item = get_object_or_404(ContentItem, pk=pk, owner=request.user)
     if request.method == "POST":
+        if item.representative_image:
+            item.representative_image.delete(save=False)
         item.delete()
         messages.success(request, "콘텐츠가 삭제되었습니다.")
         return redirect("contents:content_list")
