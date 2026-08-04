@@ -19,12 +19,9 @@ ALLOWED_HOSTS = env.list(
     default=["localhost", "127.0.0.1", ".githubpreview.dev", ".app.github.dev"],
 )
 
-# GitHub Codespaces 등 HTTPS 리버스 프록시 뒤에서 원래 호스트와 스킴을 복원한다.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 
-# Codespaces 프록시는 내부적으로 localhost Origin을 전달할 수 있다.
-# 실제 운영 도메인은 환경변수 CSRF_TRUSTED_ORIGINS로 추가한다.
 CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
     default=[
@@ -117,7 +114,6 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# 기존 META_* 이름과 FACEBOOK_* 이름을 모두 지원한다.
 FACEBOOK_APP_ID = env("FACEBOOK_APP_ID", default=env("META_APP_ID", default=""))
 FACEBOOK_APP_SECRET = env("FACEBOOK_APP_SECRET", default=env("META_APP_SECRET", default=""))
 FACEBOOK_LOGIN_CONFIG_ID = env(
@@ -128,11 +124,17 @@ FACEBOOK_GRAPH_VERSION = env(
     "FACEBOOK_GRAPH_VERSION",
     default=env("META_GRAPH_VERSION", default="v24.0"),
 )
-
-# 일반 Facebook Login의 직접 scope 방식은 개발용 최소 권한만 사용한다.
-# 비즈니스용 Facebook 로그인에서는 Meta 구성(Configuration)에 권한을 저장하고
-# FACEBOOK_LOGIN_CONFIG_ID를 OAuth 요청에 전달한다.
 FACEBOOK_OAUTH_SCOPES = env.list(
     "FACEBOOK_OAUTH_SCOPES",
     default=["public_profile"],
 )
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://redis:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://redis:6379/1")
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 900
+CELERY_TASK_SOFT_TIME_LIMIT = 840
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
