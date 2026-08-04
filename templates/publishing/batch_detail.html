@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}발행 작업 #{{ batch.pk }} | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div>
+    <span class="eyebrow">PUBLISHING JOB</span>
+    <h1>발행 작업 #{{ batch.pk }}</h1>
+    <p>{{ batch.get_action_display }} · {{ batch.created_at|date:"Y.m.d H:i" }}</p>
+  </div>
+  <a class="button soft" href="{% url 'publishing:batch_list' %}">작업 목록</a>
+</section>
+
+{% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'warning' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
+
+<section class="task-summary-grid">
+  <article><span>전체</span><strong>{{ task_counts.all }}</strong></article>
+  <article><span>대기</span><strong>{{ task_counts.pending }}</strong></article>
+  <article><span>연결 필요</span><strong>{{ task_counts.connection_required }}</strong></article>
+  <article><span>처리 중</span><strong>{{ task_counts.processing }}</strong></article>
+  <article><span>성공</span><strong>{{ task_counts.success }}</strong></article>
+  <article><span>실패</span><strong>{{ task_counts.failed }}</strong></article>
+</section>
+
+<section class="panel compact-panel">
+  <div class="panel-head">
+    <div><h2>채널별 작업</h2><p>콘텐츠와 SNS 채널 조합마다 독립된 작업으로 처리됩니다.</p></div>
+    <span class="status-chip status-{{ batch.status }}">{{ batch.get_status_display }}</span>
+  </div>
+  <div class="task-table-wrap">
+    <table class="task-table">
+      <thead><tr><th>상태</th><th>콘텐츠</th><th>채널</th><th>시도</th><th>결과</th><th>작업</th></tr></thead>
+      <tbody>
+      {% for task in batch.tasks.all %}
+        <tr>
+          <td><span class="status-chip status-{{ task.status }}">{{ task.get_status_display }}</span></td>
+          <td><strong>{{ task.content.title|truncatechars:55 }}</strong></td>
+          <td><span class="task-channel">{{ task.channel.platform.name }} · {{ task.channel.profile_name }}</span></td>
+          <td>{{ task.attempt_count }}회</td>
+          <td>{% if task.error_message %}<span class="task-error">{{ task.error_message }}</span>{% elif task.external_post_url %}<a href="{{ task.external_post_url }}" target="_blank" rel="noopener">게시물 열기</a>{% else %}<span class="muted-text">대기 중</span>{% endif %}</td>
+          <td>
+            {% if task.status == 'failed' or task.status == 'connection_required' %}
+            <form method="post" action="{% url 'publishing:task_retry' task.pk %}">{% csrf_token %}<button class="button soft button-small" type="submit">재시도</button></form>
+            {% else %}<span class="muted-text">-</span>{% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="table-empty">생성된 작업이 없습니다.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
