@@ -63,6 +63,7 @@ class PublishingTask(models.Model):
     content = models.ForeignKey(ContentItem, on_delete=models.CASCADE, related_name="publishing_tasks")
     channel = models.ForeignKey(SocialAccount, on_delete=models.CASCADE, related_name="publishing_tasks")
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING)
+    payload = models.JSONField(default=dict, blank=True)
     attempt_count = models.PositiveIntegerField(default=0)
     error_message = models.TextField(blank=True)
     external_post_id = models.CharField(max_length=255, blank=True)
