@@ -2,8 +2,9 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 
-from publishing.models import PublishingBatch
+from publishing.models import PublishingBatch, PublishingTask
 from publishing.services import create_publishing_batch
+from publishing.tasks import publish_facebook_task
 from social_channels.models import SocialAccount
 
 from .forms import ContentItemForm
@@ -77,23 +78,14 @@ def content_list(request):
                 channels=selected_channels,
                 action=action,
             )
-            messages.success(
-                request,
-                f"{batch.get_action_display()} 작업 {batch.tasks.count()}건이 생성되었습니다.",
-            )
+            messages.success(request, f"{batch.get_action_display()} 작업 {batch.tasks.count()}건이 생성되었습니다.")
             return redirect("publishing:batch_detail", pk=batch.pk)
 
-    action_choices = list(PublishingBatch.Action.choices) + [
-        (BULK_DELETE_ACTION, "선택 콘텐츠 삭제"),
-    ]
+    action_choices = list(PublishingBatch.Action.choices) + [(BULK_DELETE_ACTION, "선택 콘텐츠 삭제")]
     return render(
         request,
         "contents/content_list.html",
-        {
-            "items": items,
-            "channels": channels,
-            "action_choices": action_choices,
-        },
+        {"items": items, "channels": channels, "action_choices": action_choices},
     )
 
 
@@ -146,19 +138,25 @@ def facebook_preview(request):
             action=action,
             task_payloads=task_payloads,
         )
+
+        queued = 0
+        for task in batch.tasks.select_related("channel__platform").all():
+            if task.status == PublishingTask.Status.PENDING and task.channel.platform.code == "facebook":
+                publish_facebook_task.delay(task.pk)
+                queued += 1
+
         request.session.pop(PREVIEW_SESSION_KEY, None)
         request.session.modified = True
-        messages.success(request, f"Facebook 게시 미리보기를 반영한 작업 {batch.tasks.count()}건이 생성되었습니다.")
-        return redirect("publishing:batch_detail", pk=batch.pk)
+        if queued:
+            messages.success(request, f"Facebook 게시 {queued}건을 시작했습니다.")
+        else:
+            messages.warning(request, "게시 가능한 Facebook 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
+        return redirect("publishing:publish_result", pk=batch.pk)
 
     return render(
         request,
         "contents/facebook_preview.html",
-        {
-            "contents": contents,
-            "channels": channels,
-            "facebook_channels": facebook_channels,
-        },
+        {"contents": contents, "channels": channels, "facebook_channels": facebook_channels},
     )
 
 
