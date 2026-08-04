@@ -6,5 +6,6 @@ Pillow
 djangorestframework
 celery
 redis
+requests
 gunicorn
 whitenoise
