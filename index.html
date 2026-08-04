@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <title>SNSGROWUP</title>
+  <style>
+    :root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#667085;--line:#e7ebf2;--primary:#2563eb;--primary-dark:#1d4ed8;--soft:#eff6ff}
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+    a{text-decoration:none;color:inherit}.shell{min-height:100vh}.topbar{height:68px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;position:sticky;top:0;z-index:10}
+    .topbar-inner,.container{width:min(1120px,calc(100% - 32px));margin:auto}.topbar-inner{display:flex;align-items:center;justify-content:space-between}.brand{font-size:24px;font-weight:800;color:var(--primary);letter-spacing:-.5px}
+    .actions{display:flex;gap:10px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:12px;font-weight:700;border:1px solid var(--line);background:#fff}.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-dark)}
+    main{padding:48px 0 72px}.hero{background:linear-gradient(135deg,#fff 0%,#f8fbff 100%);border:1px solid var(--line);border-radius:28px;padding:52px;box-shadow:0 20px 70px rgba(23,32,51,.08)}
+    .eyebrow{display:inline-flex;padding:8px 12px;border-radius:999px;background:var(--soft);color:var(--primary);font-size:14px;font-weight:800}.hero h1{font-size:clamp(34px,6vw,62px);line-height:1.06;letter-spacing:-2.3px;margin:20px 0 18px;max-width:850px}.hero p{font-size:19px;line-height:1.75;color:var(--muted);max-width:760px;margin:0}.hero-actions{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}
+    .section-title{margin:52px 0 18px;font-size:28px;letter-spacing:-1px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:28px}.icon{width:52px;height:52px;border-radius:16px;background:var(--soft);display:grid;place-items:center;font-size:26px}.card h2{margin:18px 0 10px;font-size:23px}.card p{margin:0;color:var(--muted);line-height:1.7}.features{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.feature{background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;min-height:148px}.feature strong{display:block;margin-bottom:10px}.feature span{font-size:14px;line-height:1.6;color:var(--muted)}
+    .notice{margin-top:28px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:16px 18px;font-size:14px;line-height:1.6}.footer{padding:26px 0 40px;color:var(--muted);text-align:center;font-size:14px}
+    @media(max-width:800px){.topbar{height:60px}.topbar-inner,.container{width:min(100% - 24px,1120px)}.brand{font-size:21px}.actions .btn:first-child{display:none}main{padding:22px 0 46px}.hero{padding:30px 22px;border-radius:22px}.hero h1{letter-spacing:-1.5px}.hero p{font-size:16px}.grid{grid-template-columns:1fr}.features{grid-template-columns:repeat(2,minmax(0,1fr))}.section-title{margin-top:36px}}
+    @media(max-width:480px){.features{grid-template-columns:1fr}.hero-actions .btn{width:100%}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar"><div class="topbar-inner"><div class="brand">SNSGROWUP</div><nav class="actions"><a class="btn" href="#users">서비스 소개</a><a class="btn btn-primary" href="#preview" onclick="alert('이 GitHub Pages 화면은 디자인 확인용입니다. 실제 회원가입·로그인·DB 기능은 Django 실행 주소에서 작동합니다.');return false;">로그인</a></nav></div></header>
+  <main><div class="container">
+    <section class="hero" id="preview">
+      <span class="eyebrow">SNS 통합 성장 운영 플랫폼</span>
+      <h1>콘텐츠를 만들고,<br>SNS 채널을 키우는 한곳.</h1>
+      <p>페이스북·인스타그램·유튜브·쓰레드 계정을 연결하고, 콘텐츠 발행부터 성장활동, 성과분석, 신문사 RSS 기사 연동과 AI 5초 쇼츠 제작까지 통합 관리합니다.</p>
+      <div class="hero-actions"><a class="btn btn-primary" href="#users">회원 유형 보기</a><a class="btn" href="#features">핵심 기능 보기</a></div>
+    </section>
+
+    <h2 class="section-title" id="users">회원 유형을 선택하세요</h2>
+    <section class="grid">
+      <article class="card"><div class="icon">🚀</div><h2>일반 계정 사용자</h2><p>개인·자영업자·크리에이터가 콘텐츠를 직접 등록하고 SNS 채널 연결, 발행, 성장활동과 성과분석을 관리합니다.</p></article>
+      <article class="card"><div class="icon">📰</div><h2>신문사 사용자</h2><p>신문사 정보와 RSS 주소를 등록하고 기사를 자동 수집해 여러 SNS 채널에 배포하며 AI 쇼츠로 재가공합니다.</p></article>
+    </section>
+
+    <h2 class="section-title" id="features">핵심 기능</h2>
+    <section class="features">
+      <article class="feature"><strong>📡 SNS 계정 연결</strong><span>Facebook, Instagram, YouTube, Threads 채널을 한 계정에서 관리</span></article>
+      <article class="feature"><strong>✍️ 통합 콘텐츠 발행</strong><span>하나의 콘텐츠를 채널별 형식에 맞춰 다중 선택 발행</span></article>
+      <article class="feature"><strong>📈 성장 대시보드</strong><span>팔로워, 구독자, 좋아요, 조회수와 일별 증감 그래프</span></article>
+      <article class="feature"><strong>🎬 AI 5초 쇼츠</strong><span>기사 제목과 대표이미지를 활용해 짧은 세로형 영상을 자동 제작</span></article>
+      <article class="feature"><strong>📰 RSS 기사 수집</strong><span>신문사 RSS를 검증하고 기사 목록을 중복 없이 저장</span></article>
+      <article class="feature"><strong>🔎 성장 대상 탐색</strong><span>키워드 기반 관련 계정 후보와 순차 활동 흐름 제공</span></article>
+      <article class="feature"><strong>🧭 승인형 성장활동</strong><span>AI 추천 댓글과 활동 후보를 회원 또는 관리자가 확인 후 실행</span></article>
+      <article class="feature"><strong>📱 반응형 웹앱</strong><span>PC·태블릿·모바일에 최적화된 PWA형 인터페이스</span></article>
+    </section>
+
+    <div class="notice">현재 이 주소는 GitHub Pages에서 제공되는 화면 검토용 정적 홈입니다. 디자인과 구성은 계속 확인할 수 있지만, 실제 회원가입·로그인·RSS·DB 기능은 Django 서버에서 작동합니다.</div>
+  </div></main>
+  <footer class="footer">© 2026 SNSGROWUP</footer>
+</div>
+</body>
+</html>
