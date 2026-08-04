@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: snsgrowup
       POSTGRES_USER: snsgrowup
@@ -15,9 +16,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
 
   web:
     build: .
+    restart: unless-stopped
     command: sh scripts/start-web.sh
     volumes:
       - .:/app
