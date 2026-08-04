@@ -100,3 +100,11 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+FACEBOOK_APP_ID = env("FACEBOOK_APP_ID", default="")
+FACEBOOK_APP_SECRET = env("FACEBOOK_APP_SECRET", default="")
+FACEBOOK_GRAPH_VERSION = env("FACEBOOK_GRAPH_VERSION", default="v23.0")
+FACEBOOK_OAUTH_SCOPES = env.list(
+    "FACEBOOK_OAUTH_SCOPES",
+    default=["public_profile", "email", "pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+)
