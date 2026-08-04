@@ -1,0 +1,24 @@
+{% load static %}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}SNSGROWUP{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="{% url 'home' %}">SNSGROWUP</a>
+    <nav>
+      {% if user.is_authenticated %}
+        <span class="user-name">{{ user.display_name }}</span>
+        <form method="post" action="{% url 'accounts:logout' %}" class="inline-form">{% csrf_token %}<button class="text-button">로그아웃</button></form>
+      {% else %}
+        <a href="{% url 'accounts:login' %}">로그인</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main class="page-shell">{% block content %}{% endblock %}</main>
+</body>
+</html>
