@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Facebook 연결 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div><span class="eyebrow">FACEBOOK CONNECT</span><h1>Facebook 연결</h1><p>{{ account.profile_name }} 계정을 공식 API와 연결합니다.</p></div>
+  <a class="button soft" href="{% url 'social_channels:account_list' %}">채널 목록</a>
+</section>
+<section class="panel compact-panel connection-setup">
+  <div class="panel-head"><h2>Meta 앱 설정이 필요합니다</h2><span class="status-chip status-connection_required">설정 대기</span></div>
+  <div class="panel-body">
+    <p>Facebook 연결 버튼이 실제 로그인 화면으로 이동하려면 Meta for Developers에서 앱을 만든 뒤 환경변수에 앱 ID와 앱 시크릿을 등록해야 합니다.</p>
+    <div class="setup-grid">
+      <div><span>환경변수</span><code>FACEBOOK_APP_ID</code></div>
+      <div><span>환경변수</span><code>FACEBOOK_APP_SECRET</code></div>
+      <div class="setup-wide"><span>유효한 OAuth 리디렉션 URI</span><code>{{ redirect_uri }}</code></div>
+    </div>
+    <div class="notice notice-info">앱 설정이 완료되면 이 화면의 연결 버튼이 Facebook 로그인 화면으로 자동 전환됩니다.</div>
+    <a class="button primary" href="{% url 'social_channels:account_list' %}">확인</a>
+  </div>
+</section>
+{% endblock %}
