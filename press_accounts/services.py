@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from html import unescape
 from typing import Any
@@ -29,10 +29,14 @@ def _entry_value(entry: Any, key: str, default: str = "") -> str:
 
 
 def _published_at(entry: Any):
+    """Return an aware datetime without depending on removed Django timezone.utc."""
     for key in ("published_parsed", "updated_parsed"):
         value = entry.get(key)
         if value:
-            return datetime(*value[:6], tzinfo=timezone.utc)
+            try:
+                return datetime(*value[:6], tzinfo=UTC)
+            except (TypeError, ValueError, OverflowError):
+                continue
 
     for key in ("published", "updated"):
         raw = _entry_value(entry, key)
@@ -41,7 +45,7 @@ def _published_at(entry: Any):
         try:
             parsed = parsedate_to_datetime(raw)
             if parsed.tzinfo is None:
-                parsed = timezone.make_aware(parsed)
+                parsed = parsed.replace(tzinfo=UTC)
             return parsed
         except (TypeError, ValueError, OverflowError):
             continue
@@ -106,34 +110,38 @@ def collect_feed(profile: PressProfile, *, limit: int = 100) -> RSSCollectResult
     result = RSSCollectResult(feed_title=str(feed.feed.get("title", "")).strip())
 
     for entry in list(feed.entries)[:limit]:
-        title = _entry_value(entry, "title")
-        source_url = _entry_value(entry, "link")
-        guid = _entry_value(entry, "id") or source_url
-        if not title or not guid:
-            result.failed += 1
-            continue
+        try:
+            title = _entry_value(entry, "title")
+            source_url = _entry_value(entry, "link")
+            guid = _entry_value(entry, "id") or source_url
+            if not title or not guid:
+                result.failed += 1
+                continue
 
-        defaults = {
-            "source_type": ContentItem.SourceType.RSS,
-            "title": title[:300],
-            "body": _body(entry),
-            "source_url": source_url,
-            "published_at": _published_at(entry),
-        }
-        item, created = ContentItem.objects.get_or_create(
-            owner=profile.user,
-            external_guid=guid[:500],
-            defaults=defaults,
-        )
-        if created:
-            # 원격 이미지는 당장 파일로 복제하지 않고 URL만 추후 발행 변환 단계에서 사용한다.
-            image_url = _image_url(entry)
-            if image_url and not item.body:
-                item.body = image_url
-                item.save(update_fields=["body"])
-            result.created += 1
-        else:
-            result.skipped += 1
+            defaults = {
+                "source_type": ContentItem.SourceType.RSS,
+                "title": title[:300],
+                "body": _body(entry),
+                "source_url": source_url,
+                "published_at": _published_at(entry),
+            }
+            item, created = ContentItem.objects.get_or_create(
+                owner=profile.user,
+                external_guid=guid[:500],
+                defaults=defaults,
+            )
+            if created:
+                # 원격 이미지는 다음 발행 변환 단계에서 별도 필드로 정식 관리한다.
+                image_url = _image_url(entry)
+                if image_url and not item.body:
+                    item.body = image_url
+                    item.save(update_fields=["body"])
+                result.created += 1
+            else:
+                result.skipped += 1
+        except Exception:
+            # 한 기사 데이터가 깨져도 전체 RSS 수집을 중단하지 않는다.
+            result.failed += 1
 
     profile.rss_verified = True
     profile.collection_status = "success"
