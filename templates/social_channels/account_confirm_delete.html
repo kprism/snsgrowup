@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block title %}SNS 계정 삭제 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="form-shell"><div class="form-card"><span class="eyebrow">REMOVE</span><h1>SNS 계정을 삭제할까요?</h1><p><strong>{{ account.profile_name }}</strong> · {{ account.platform.name }}</p><p>등록정보만 삭제되며 실제 SNS 계정에는 영향을 주지 않습니다.</p><form method="post">{% csrf_token %}<div class="actions"><button class="button danger" type="submit">삭제</button><a class="button soft" href="{% url 'social_channels:account_list' %}">취소</a></div></form></div></section>
+{% endblock %}
