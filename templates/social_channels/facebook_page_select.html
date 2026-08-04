@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Facebook 페이지 선택 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div>
+    <span class="eyebrow">FACEBOOK CONNECT</span>
+    <h1>연결할 Facebook 페이지 선택</h1>
+    <p>{{ facebook_profile.name|default:"Facebook 사용자" }} 계정이 관리하는 페이지 중 SNSGROWUP에서 운영할 페이지를 선택합니다.</p>
+  </div>
+  <a class="button soft" href="{% url 'social_channels:account_list' %}">취소</a>
+</section>
+
+{% if messages %}{% for message in messages %}<div class="notice notice-error">{{ message }}</div>{% endfor %}{% endif %}
+
+<form method="post" class="facebook-page-form">
+  {% csrf_token %}
+  <section class="panel compact-panel">
+    <div class="panel-head">
+      <div><h2>관리 가능한 페이지</h2><p>선택한 페이지의 Page ID와 Page Access Token이 저장됩니다.</p></div>
+      <span class="count-chip">{{ pages|length }}개</span>
+    </div>
+    <div class="facebook-page-grid">
+      {% for page in pages %}
+      <label class="facebook-page-card">
+        <input type="radio" name="page_id" value="{{ page.id }}" {% if forloop.first %}checked{% endif %}>
+        <span class="facebook-page-radio"></span>
+        <div class="facebook-page-avatar">
+          {% if page.picture_url %}<img src="{{ page.picture_url }}" alt="">{% else %}<span>f</span>{% endif %}
+        </div>
+        <div class="facebook-page-info">
+          <strong>{{ page.name }}</strong>
+          <span>{{ page.category|default:"Facebook 페이지" }}</span>
+          <small>Page ID {{ page.id }}</small>
+          {% if page.tasks %}<small>권한: {{ page.tasks|join:", " }}</small>{% endif %}
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="facebook-page-actions">
+      <a class="button soft" href="{% url 'social_channels:facebook_connect' account.pk %}">다시 불러오기</a>
+      <button class="button primary" type="submit">선택한 페이지 연결</button>
+    </div>
+  </section>
+</form>
+{% endblock %}
