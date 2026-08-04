@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Facebook 게시 미리보기 | SNSGROWUP{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/facebook-preview.css' %}">{% endblock %}
 {% block content %}
 <section class="page-head compact-head">
   <div>
