@@ -1,0 +1,10 @@
+Django>=5.2,<6.1
+psycopg[binary]
+django-environ
+feedparser
+Pillow
+djangorestframework
+celery
+redis
+gunicorn
+whitenoise
