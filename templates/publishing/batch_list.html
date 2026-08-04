@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}발행 관리 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div><span class="eyebrow">PUBLISHING</span><h1>발행 관리</h1><p>콘텐츠와 채널을 묶어 등록한 작업의 진행 상태를 확인합니다.</p></div>
+  <a class="button primary" href="{% url 'contents:content_list' %}">새 작업 만들기</a>
+</section>
+{% if messages %}{% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}{% endif %}
+<section class="panel compact-panel">
+  <div class="panel-head"><h2>작업 목록</h2><span class="count-chip">{{ batches|length }}건</span></div>
+  {% if batches %}
+    <div class="batch-list">
+      {% for batch in batches %}
+      <article class="batch-row">
+        <div><span class="status-chip">{{ batch.get_status_display }}</span><strong>{{ batch.get_action_display }}</strong><small>{{ batch.created_at|date:"Y.m.d H:i" }}</small></div>
+        <div><b>콘텐츠</b><span>{{ batch.contents.count }}건</span></div>
+        <div><b>채널</b><span>{{ batch.channels.count }}개</span></div>
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state compact-empty"><h2>등록된 발행 작업이 없습니다</h2><p>콘텐츠 목록에서 콘텐츠와 채널을 선택해 첫 작업을 만들어 보세요.</p><a class="button primary" href="{% url 'contents:content_list' %}">작업 만들기</a></div>
+  {% endif %}
+</section>
+{% endblock %}
