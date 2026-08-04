@@ -9,4 +9,7 @@ urlpatterns = [
     path("add/", views.account_create, name="account_create"),
     path("<int:pk>/edit/", views.account_update, name="account_update"),
     path("<int:pk>/delete/", views.account_delete, name="account_delete"),
+    path("<int:pk>/facebook/connect/", views.facebook_connect, name="facebook_connect"),
+    path("<int:pk>/facebook/callback/", views.facebook_callback, name="facebook_callback"),
+    path("<int:pk>/facebook/disconnect/", views.facebook_disconnect, name="facebook_disconnect"),
 ]
