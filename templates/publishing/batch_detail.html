@@ -6,7 +6,7 @@
   <a class="button soft" href="{% url 'publishing:batch_list' %}">작업 목록</a>
 </section>
 
-{% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'warning' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
+{% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'warning' or message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
 <section class="job-overview panel">
   <div class="job-overview-main">
@@ -26,7 +26,7 @@
 </section>
 
 <section class="panel compact-panel">
-  <div class="panel-head"><div><h2>채널별 작업</h2><p>콘텐츠와 SNS 채널 조합마다 독립된 작업으로 처리됩니다.</p></div></div>
+  <div class="panel-head"><div><h2>채널별 작업</h2><p>실제 게시 버튼을 누른 작업 한 건만 Facebook에 전송됩니다.</p></div></div>
   <div class="task-table-wrap">
     <table class="task-table">
       <thead><tr><th>상태</th><th>콘텐츠</th><th>채널</th><th>시도</th><th>결과</th><th>작업</th></tr></thead>
@@ -38,7 +38,17 @@
           <td><span class="task-channel">{{ task.channel.platform.name }} · {{ task.channel.profile_name }}</span></td>
           <td>{{ task.attempt_count }}회</td>
           <td>{% if task.error_message %}<span class="task-error">{{ task.error_message }}</span>{% elif task.external_post_url %}<a href="{{ task.external_post_url }}" target="_blank" rel="noopener">게시물 열기</a>{% else %}<span class="muted-text">대기 중</span>{% endif %}</td>
-          <td>{% if task.status == 'failed' or task.status == 'connection_required' %}<form method="post" action="{% url 'publishing:task_retry' task.pk %}">{% csrf_token %}<button class="button soft button-small" type="submit">재시도</button></form>{% else %}<span class="muted-text">-</span>{% endif %}</td>
+          <td>
+            {% if task.status == 'pending' and task.channel.platform.code == 'facebook' %}
+              <form method="post" action="{% url 'publishing:task_execute' task.pk %}" onsubmit="return confirm('이 콘텐츠를 Facebook 페이지에 실제 게시합니다. 계속할까요?');">{% csrf_token %}<button class="button primary button-small" type="submit">게시 실행</button></form>
+            {% elif task.status == 'failed' or task.status == 'connection_required' %}
+              <form method="post" action="{% url 'publishing:task_retry' task.pk %}">{% csrf_token %}<button class="button soft button-small" type="submit">재시도</button></form>
+            {% elif task.status == 'processing' %}
+              <span class="muted-text">처리 중</span>
+            {% else %}
+              <span class="muted-text">-</span>
+            {% endif %}
+          </td>
         </tr>
       {% empty %}
         <tr><td colspan="6" class="table-empty">생성된 작업이 없습니다.</td></tr>
