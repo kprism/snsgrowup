@@ -1,10 +1,8 @@
-/* Global flat visual system: no gradients, shadows, glow, or depth effects. */
-*,*::before,*::after{box-shadow:none!important;text-shadow:none!important;filter:none!important;background-image:none!important}
+/* Flat application surfaces. 3D icon assets load after this file and keep their own depth styling. */
 :root{--shadow:none!important}
-body,.topbar,.sidebar,.main-content,.panel,.service-card,.form-card,.summary-card,.publishing-card,.sticky-action-bar,.facebook-mockup,.rss-progress{box-shadow:none!important}
-.icon-3d,.icon-3d::before,.icon-3d::after,.icon-3d i,.brand-mark,.brand-icon{background-image:none!important;box-shadow:none!important;filter:none!important;transform:none!important}
-.icon-3d{background:#eef2ff!important;border:1px solid #dbe3f2!important;border-radius:8px!important}
-.icon-3d i,.icon-3d::before,.icon-3d::after{background:#3563e9!important}
+body,.topbar,.sidebar,.main-content,.panel,.service-card,.form-card,.summary-card,.publishing-card,.sticky-action-bar,.facebook-mockup,.rss-progress,.action-toolbar,.button,.channel-pick,.content-row,.job-table-wrap{box-shadow:none!important;text-shadow:none!important;filter:none!important;background-image:none!important}
+body::before,body::after,.topbar::before,.topbar::after,.sidebar::before,.sidebar::after,.panel::before,.panel::after,.button::before,.button::after{box-shadow:none!important;text-shadow:none!important;filter:none!important;background-image:none!important}
+.brand-mark,.brand-icon{background-image:none!important;box-shadow:none!important;filter:none!important}
 .nav-item:hover,.button:hover,.publishing-card:hover{transform:none!important}
 .panel,.service-card,.form-card,.summary-card,.publishing-card,.action-toolbar,.sticky-action-bar{border:1px solid #e1e6ef!important}
 .rss-progress{border-top:1px solid #e1e6ef;background:#fff!important;padding:12px 18px}
@@ -13,4 +11,4 @@ body,.topbar,.sidebar,.main-content,.panel,.service-card,.form-card,.summary-car
 .rss-progress-copy small{margin-top:3px;color:#667085;font-size:.76rem}
 .rss-progress-copy b{font-size:.82rem;color:#3563e9}
 .rss-progress-track{height:5px;background:#edf1f6;border-radius:0;overflow:hidden}
-.rss-progress-track span{display:block;height:100%;background:#3563e9!important;transition:width .25s linear}
+.rss-progress-track span{display:block;height:100%;background:#3563e9!important;transition:width .25s linear;animation:none!important;transform:none!important;background-position:0 0!important}
