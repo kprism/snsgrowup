@@ -1,8 +1,9 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from .models import PublishingBatch, PublishingTask
 from .services import ensure_batch_tasks, retry_task
@@ -25,17 +26,12 @@ def batch_list(request):
     if status in PublishingBatch.Status.values:
         base_qs = base_qs.filter(status=status)
 
-    batches = list(
-        base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at")
-    )
-
+    batches = list(base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at"))
     for batch in batches:
         if batch.contents.exists() and batch.channels.exists() and not batch.tasks.exists():
             ensure_batch_tasks(batch=batch)
 
-    batches = list(
-        base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at")
-    )
+    batches = list(base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at"))
     for batch in batches:
         tasks = list(batch.tasks.all())
         total = len(tasks)
@@ -100,10 +96,61 @@ def batch_detail(request, pk):
     }
     finished = task_counts["success"] + task_counts["failed"]
     progress = round((finished / task_counts["all"]) * 100) if task_counts["all"] else 0
-    return render(
-        request,
-        "publishing/batch_detail.html",
-        {"batch": batch, "task_counts": task_counts, "progress": progress},
+    return render(request, "publishing/batch_detail.html", {"batch": batch, "task_counts": task_counts, "progress": progress})
+
+
+@login_required
+def publish_result(request, pk):
+    batch = get_object_or_404(
+        PublishingBatch.objects.prefetch_related("tasks__content", "tasks__channel__platform"),
+        pk=pk,
+        owner=request.user,
+    )
+    return render(request, "publishing/publish_result.html", {"batch": batch})
+
+
+@login_required
+@require_GET
+def publish_status(request, pk):
+    batch = get_object_or_404(
+        PublishingBatch.objects.prefetch_related("tasks__content", "tasks__channel__platform"),
+        pk=pk,
+        owner=request.user,
+    )
+    tasks = list(batch.tasks.all())
+    total = len(tasks)
+    success = sum(task.status == PublishingTask.Status.SUCCESS for task in tasks)
+    failed = sum(task.status == PublishingTask.Status.FAILED for task in tasks)
+    connection_required = sum(task.status == PublishingTask.Status.CONNECTION_REQUIRED for task in tasks)
+    processing = sum(task.status == PublishingTask.Status.PROCESSING for task in tasks)
+    pending = sum(task.status == PublishingTask.Status.PENDING for task in tasks)
+    finished = success + failed + connection_required
+    percent = round((finished / total) * 100) if total else 100
+    done = total == finished
+
+    return JsonResponse(
+        {
+            "done": done,
+            "percent": percent,
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "connection_required": connection_required,
+            "processing": processing,
+            "pending": pending,
+            "tasks": [
+                {
+                    "id": task.pk,
+                    "status": task.status,
+                    "status_label": task.get_status_display(),
+                    "content": task.content.title,
+                    "channel": task.channel.profile_name,
+                    "url": task.external_post_url,
+                    "error": task.error_message,
+                }
+                for task in tasks
+            ],
+        }
     )
 
 
@@ -125,7 +172,8 @@ def task_execute(request, pk):
         messages.warning(request, "Facebook 페이지 연결이 필요합니다.")
     else:
         publish_facebook_task.delay(task.pk)
-        messages.success(request, "Facebook 게시 작업을 백그라운드에 등록했습니다.")
+        messages.success(request, "Facebook 게시를 시작했습니다.")
+        return redirect("publishing:publish_result", pk=task.batch_id)
     return redirect("publishing:batch_detail", pk=task.batch_id)
 
 
