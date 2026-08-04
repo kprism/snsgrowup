@@ -2,7 +2,7 @@
 {% block title %}발행 관리 | SNSGROWUP{% endblock %}
 {% block content %}
 <section class="page-head compact-head">
-  <div><span class="eyebrow">PUBLISHING</span><h1>발행 관리</h1><p>콘텐츠와 채널을 묶어 등록한 작업의 진행 상태를 확인합니다.</p></div>
+  <div><span class="eyebrow">PUBLISHING</span><h1>발행 관리</h1><p>콘텐츠와 채널별 작업 상태를 확인하고 실패 작업을 재시도합니다.</p></div>
   <a class="button primary" href="{% url 'contents:content_list' %}">새 작업 만들기</a>
 </section>
 {% if messages %}{% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}{% endif %}
@@ -11,11 +11,11 @@
   {% if batches %}
     <div class="batch-list">
       {% for batch in batches %}
-      <article class="batch-row">
-        <div><span class="status-chip">{{ batch.get_status_display }}</span><strong>{{ batch.get_action_display }}</strong><small>{{ batch.created_at|date:"Y.m.d H:i" }}</small></div>
+      <a class="batch-row batch-row-link" href="{% url 'publishing:batch_detail' batch.pk %}">
+        <div><span class="status-chip status-{{ batch.status }}">{{ batch.get_status_display }}</span><strong>#{{ batch.pk }} {{ batch.get_action_display }}</strong><small>{{ batch.created_at|date:"Y.m.d H:i" }}</small></div>
         <div><b>콘텐츠</b><span>{{ batch.contents.count }}건</span></div>
-        <div><b>채널</b><span>{{ batch.channels.count }}개</span></div>
-      </article>
+        <div><b>개별 작업</b><span>{{ batch.tasks.count }}건</span></div>
+      </a>
       {% endfor %}
     </div>
   {% else %}
