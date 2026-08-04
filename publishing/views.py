@@ -10,12 +10,24 @@ from .services import ensure_batch_tasks, retry_task
 
 @login_required
 def batch_list(request):
+    query = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "").strip()
+
     base_qs = PublishingBatch.objects.filter(owner=request.user)
+    if query:
+        base_qs = base_qs.filter(
+            Q(id__icontains=query)
+            | Q(contents__title__icontains=query)
+            | Q(channels__profile_name__icontains=query)
+            | Q(channels__platform__name__icontains=query)
+        ).distinct()
+    if status in PublishingBatch.Status.values:
+        base_qs = base_qs.filter(status=status)
+
     batches = list(
         base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at")
     )
 
-    # 개별 작업 모델 도입 전에 생성된 배치도 화면 진입 시 자동 보정한다.
     for batch in batches:
         if batch.contents.exists() and batch.channels.exists() and not batch.tasks.exists():
             ensure_batch_tasks(batch=batch)
@@ -28,9 +40,7 @@ def batch_list(request):
         total = len(tasks)
         success = sum(task.status == PublishingTask.Status.SUCCESS for task in tasks)
         failed = sum(task.status == PublishingTask.Status.FAILED for task in tasks)
-        connection_required = sum(
-            task.status == PublishingTask.Status.CONNECTION_REQUIRED for task in tasks
-        )
+        connection_required = sum(task.status == PublishingTask.Status.CONNECTION_REQUIRED for task in tasks)
         processing = sum(task.status == PublishingTask.Status.PROCESSING for task in tasks)
         pending = sum(task.status == PublishingTask.Status.PENDING for task in tasks)
         finished = success + failed
@@ -43,15 +53,27 @@ def batch_list(request):
             "pending": pending,
         }
         batch.ui_progress = round((finished / total) * 100) if total else 0
+        batch.ui_content_titles = list(batch.contents.values_list("title", flat=True)[:2])
 
-    totals = base_qs.aggregate(
+    all_owner_qs = PublishingBatch.objects.filter(owner=request.user)
+    totals = all_owner_qs.aggregate(
         total=Count("id", distinct=True),
         pending=Count("id", filter=Q(status=PublishingBatch.Status.PENDING), distinct=True),
         processing=Count("id", filter=Q(status=PublishingBatch.Status.PROCESSING), distinct=True),
         completed=Count("id", filter=Q(status=PublishingBatch.Status.COMPLETED), distinct=True),
         failed=Count("id", filter=Q(status__in=[PublishingBatch.Status.FAILED, PublishingBatch.Status.PARTIAL]), distinct=True),
     )
-    return render(request, "publishing/batch_list.html", {"batches": batches, "totals": totals})
+    return render(
+        request,
+        "publishing/batch_list.html",
+        {
+            "batches": batches,
+            "totals": totals,
+            "query": query,
+            "selected_status": status,
+            "status_choices": PublishingBatch.Status.choices,
+        },
+    )
 
 
 @login_required
