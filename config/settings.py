@@ -114,6 +114,9 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+OPENAI_MODEL = env("OPENAI_MODEL", default="gpt-5-mini")
+
 FACEBOOK_APP_ID = env("FACEBOOK_APP_ID", default=env("META_APP_ID", default=""))
 FACEBOOK_APP_SECRET = env("FACEBOOK_APP_SECRET", default=env("META_APP_SECRET", default=""))
 FACEBOOK_LOGIN_CONFIG_ID = env(
