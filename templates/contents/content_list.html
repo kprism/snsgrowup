@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}콘텐츠 관리 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head"><div><span class="eyebrow">CONTENTS</span><h1>콘텐츠 관리</h1><p>직접 작성한 콘텐츠와 RSS 기사를 한곳에서 관리합니다.</p></div><a class="button primary" href="{% url 'contents:content_create' %}">새 콘텐츠</a></section>
+{% if messages %}{% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}{% endif %}
+<section class="panel"><div class="panel-head"><div><h2>콘텐츠 목록</h2><p>다음 단계에서 선택한 콘텐츠를 여러 SNS 채널에 발행합니다.</p></div><span class="count-chip">{{ items|length }}건</span></div>
+{% if items %}<div class="content-table">{% for item in items %}<article class="content-row"><div class="content-check"><input type="checkbox" disabled></div><div class="content-main"><div class="row-meta"><span class="status-chip">{{ item.get_source_type_display }}</span><span>{{ item.created_at|date:"Y.m.d H:i" }}</span></div><h3>{{ item.title }}</h3><p>{{ item.body|truncatechars:140|default:"본문 없음" }}</p></div><div class="row-actions"><a class="button soft" href="{% url 'contents:content_update' item.pk %}">수정</a><a class="button danger" href="{% url 'contents:content_delete' item.pk %}">삭제</a></div></article>{% endfor %}</div>{% else %}<div class="empty-state"><h2>아직 콘텐츠가 없습니다</h2><p>첫 콘텐츠를 작성하면 SNS 발행과 AI 쇼츠 제작의 재료로 사용할 수 있습니다.</p><a class="button primary" href="{% url 'contents:content_create' %}">첫 콘텐츠 작성</a></div>{% endif %}</section>
+{% endblock %}
