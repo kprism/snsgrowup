@@ -6,7 +6,7 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 import feedparser
@@ -18,6 +18,9 @@ from django.utils.html import strip_tags
 
 from contents.models import ContentItem
 from .models import PressProfile
+
+
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass
@@ -88,7 +91,6 @@ def _image_url(entry: Any) -> str:
 
 
 def _save_webp_image(item: ContentItem, image_url: str) -> bool:
-    """Download a remote RSS image and store a bounded WebP copy."""
     if not image_url or item.representative_image:
         return False
 
@@ -130,7 +132,12 @@ def inspect_feed(profile: PressProfile) -> dict[str, Any]:
 
 
 @transaction.atomic
-def collect_feed(profile: PressProfile, *, limit: int = 100) -> RSSCollectResult:
+def collect_feed(
+    profile: PressProfile,
+    *,
+    limit: int = 100,
+    progress_callback: ProgressCallback | None = None,
+) -> RSSCollectResult:
     feed = feedparser.parse(profile.rss_url)
     if getattr(feed, "bozo", False) and not feed.entries:
         error = getattr(feed, "bozo_exception", None)
@@ -139,9 +146,14 @@ def collect_feed(profile: PressProfile, *, limit: int = 100) -> RSSCollectResult
         profile.save(update_fields=["rss_verified", "collection_status"])
         raise ValueError(f"RSS 수집 실패: {error or '형식 오류'}")
 
+    entries = list(feed.entries)[:limit]
+    total = len(entries)
     result = RSSCollectResult(feed_title=str(feed.feed.get("title", "")).strip())
 
-    for entry in list(feed.entries)[:limit]:
+    if progress_callback:
+        progress_callback(0, total, "RSS 목록을 확인하고 있습니다.")
+
+    for index, entry in enumerate(entries, start=1):
         try:
             title = _entry_value(entry, "title")
             source_url = _entry_value(entry, "link")
@@ -173,6 +185,9 @@ def collect_feed(profile: PressProfile, *, limit: int = 100) -> RSSCollectResult
                 result.skipped += 1
         except Exception:
             result.failed += 1
+        finally:
+            if progress_callback:
+                progress_callback(index, total, f"기사와 이미지를 처리하고 있습니다. {index}/{total}")
 
     profile.rss_verified = True
     profile.collection_status = "success"
