@@ -9,6 +9,7 @@ urlpatterns = [
     path("channels/", include("social_channels.urls")),
     path("contents/", include("contents.urls")),
     path("publishing/", include("publishing.urls")),
+    path("rss/", include("press_accounts.urls")),
     path("admin/", admin.site.urls),
 ]
 
