@@ -7,7 +7,7 @@
   <div>
     <span class="eyebrow">FACEBOOK PREVIEW</span>
     <h1>Facebook 게시 미리보기</h1>
-    <p>게시할 콘텐츠를 선택하고 한 번에 Facebook에 게시합니다.</p>
+    <p>AI 게시문과 추천 태그를 확인한 뒤 선택 콘텐츠를 한 번에 게시합니다.</p>
   </div>
 </section>
 
@@ -22,7 +22,11 @@
         {% endfor %}
       </div>
     </div>
-    <label class="hashtag-field"><span>공통 해시태그</span><input type="text" name="hashtags" placeholder="#창원 #경남 #지역뉴스"></label>
+    <div class="preview-ai-actions">
+      <button class="button soft" type="button" id="generateAllAi">AI 전체 생성</button>
+      <small id="aiOverallStatus">선택한 콘텐츠의 게시문과 태그를 생성합니다.</small>
+    </div>
+    <label class="hashtag-field"><span>공통 태그 <small>개별 태그가 없을 때 적용</small></span><input type="text" name="hashtags" placeholder="#창원 #경남 #지역뉴스"></label>
   </section>
 
   <section class="preview-selection-bar">
@@ -32,7 +36,7 @@
 
   <div class="preview-review-list">
   {% for item in contents %}
-    <details class="preview-review-item" data-preview-item {% if forloop.first %}open{% endif %}>
+    <details class="preview-review-item" data-preview-item data-content-id="{{ item.pk }}" {% if forloop.first %}open{% endif %}>
       <summary>
         <label class="preview-item-check" onclick="event.stopPropagation();">
           <input type="checkbox" name="publish_content_ids" value="{{ item.pk }}" class="preview-content-check" checked>
@@ -54,14 +58,21 @@
       <div class="preview-detail-grid">
         <div class="facebook-mockup compact-mockup">
           <div class="facebook-mockup-head"><span class="brand-icon brand-facebook"><svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg></span><div><strong>{{ facebook_channels.0.profile_name }}</strong><small>게시 전 미리보기</small></div></div>
-          <p class="facebook-preview-text">{{ item.body|default:item.title|truncatechars:180 }}</p>
+          <p class="facebook-preview-text" data-preview-text>{{ item.body|default:item.title|truncatechars:180 }}</p>
+          <p class="facebook-preview-tags" data-preview-tags></p>
           {% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="{{ item.title }}" class="facebook-preview-image">{% endif %}
           {% if item.source_url %}<div class="facebook-link-preview"><span>{{ item.source_url }}</span><strong>{{ item.title }}</strong></div>{% endif %}
         </div>
 
         <div class="preview-editor">
-          <label for="message_{{ item.pk }}">게시 문구</label>
+          <div class="preview-editor-head">
+            <label for="message_{{ item.pk }}">게시 문구</label>
+            <button type="button" class="button soft button-small ai-one-button" data-ai-content="{{ item.pk }}">AI 생성</button>
+          </div>
           <textarea id="message_{{ item.pk }}" name="message_{{ item.pk }}" rows="6">{{ item.body|default:item.title }}</textarea>
+          <label class="tag-field" for="tags_{{ item.pk }}"><span>추천 태그 <small>수정·삭제 가능</small></span><input id="tags_{{ item.pk }}" name="tags_{{ item.pk }}" type="text" placeholder="AI 생성 시 추천 태그가 들어갑니다."></label>
+          <input type="hidden" name="recommended_tags_{{ item.pk }}" id="recommended_tags_{{ item.pk }}" value="">
+          <p class="ai-item-status" data-ai-status></p>
           <div class="preview-option-row">
             <label class="option-check"><input type="checkbox" name="include_link_{{ item.pk }}" {% if item.source_url %}checked{% else %}disabled{% endif %}> 링크 포함</label>
             <label class="option-check"><input type="checkbox" name="include_image_{{ item.pk }}" {% if item.representative_image %}checked{% else %}disabled{% endif %}> 대표이미지 포함</label>
@@ -85,6 +96,10 @@
   const selectAll = document.getElementById('previewSelectAll');
   const checks = [...document.querySelectorAll('.preview-content-check')];
   const count = document.getElementById('previewSelectedCount');
+  const generateAll = document.getElementById('generateAllAi');
+  const overallStatus = document.getElementById('aiOverallStatus');
+  const csrf = form.querySelector('input[name="csrfmiddlewaretoken"]').value;
+  const aiUrl = '{% url "contents:ai_facebook_draft" %}';
 
   const sync = () => {
     const selected = checks.filter(check => check.checked).length;
@@ -92,6 +107,7 @@
     selectAll.checked = selected === checks.length && checks.length > 0;
     selectAll.indeterminate = selected > 0 && selected < checks.length;
     button.disabled = selected === 0;
+    generateAll.disabled = selected === 0;
     button.textContent = selected > 1 ? `선택한 ${selected}건 일괄게시` : selected === 1 ? '선택한 콘텐츠 게시' : '게시할 콘텐츠를 선택하세요';
     checks.forEach(check => {
       const item = check.closest('[data-preview-item]');
@@ -99,25 +115,79 @@
     });
   };
 
+  async function generateOne(item) {
+    const contentId = item.dataset.contentId;
+    const oneButton = item.querySelector('.ai-one-button');
+    const status = item.querySelector('[data-ai-status]');
+    const messageInput = item.querySelector(`[name="message_${contentId}"]`);
+    const tagsInput = item.querySelector(`[name="tags_${contentId}"]`);
+    const recommendedInput = item.querySelector(`[name="recommended_tags_${contentId}"]`);
+    const previewText = item.querySelector('[data-preview-text]');
+    const previewTags = item.querySelector('[data-preview-tags]');
+
+    oneButton.disabled = true;
+    oneButton.textContent = '생성 중…';
+    status.textContent = 'AI가 기사 내용을 분석하고 있습니다.';
+    status.classList.remove('is-error');
+
+    const body = new FormData();
+    body.append('csrfmiddlewaretoken', csrf);
+    body.append('content_id', contentId);
+    try {
+      const response = await fetch(aiUrl, {method: 'POST', body, credentials: 'same-origin'});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || 'AI 생성에 실패했습니다.');
+      messageInput.value = data.message;
+      tagsInput.value = data.hashtag_text || '';
+      recommendedInput.value = data.hashtag_text || '';
+      previewText.textContent = data.message;
+      previewTags.textContent = data.hashtag_text || '';
+      status.textContent = 'AI 게시문과 추천 태그를 반영했습니다.';
+      return true;
+    } catch (error) {
+      status.textContent = error.message;
+      status.classList.add('is-error');
+      return false;
+    } finally {
+      oneButton.disabled = false;
+      oneButton.textContent = 'AI 다시 생성';
+    }
+  }
+
   selectAll.addEventListener('change', () => {
     checks.forEach(check => { check.checked = selectAll.checked; });
     sync();
   });
   checks.forEach(check => check.addEventListener('change', sync));
 
-  if (form && button) {
-    form.addEventListener('submit', event => {
-      if (event.submitter !== button) return;
-      const selected = checks.filter(check => check.checked).length;
-      if (!selected) {
-        event.preventDefault();
-        alert('게시할 콘텐츠를 한 건 이상 선택해 주세요.');
-        return;
-      }
-      button.disabled = true;
-      button.textContent = selected > 1 ? `${selected}건 게시 중…` : '게시 중…';
-    });
-  }
+  document.querySelectorAll('.ai-one-button').forEach(aiButton => {
+    aiButton.addEventListener('click', () => generateOne(aiButton.closest('[data-preview-item]')));
+  });
+
+  generateAll.addEventListener('click', async () => {
+    const selectedItems = checks.filter(check => check.checked).map(check => check.closest('[data-preview-item]'));
+    generateAll.disabled = true;
+    let success = 0;
+    for (let index = 0; index < selectedItems.length; index += 1) {
+      overallStatus.textContent = `${index + 1}/${selectedItems.length} AI 게시문 생성 중`;
+      if (await generateOne(selectedItems[index])) success += 1;
+    }
+    overallStatus.textContent = `${success}/${selectedItems.length}건 AI 생성 완료`;
+    generateAll.disabled = false;
+    sync();
+  });
+
+  form.addEventListener('submit', event => {
+    if (event.submitter !== button) return;
+    const selected = checks.filter(check => check.checked).length;
+    if (!selected) {
+      event.preventDefault();
+      alert('게시할 콘텐츠를 한 건 이상 선택해 주세요.');
+      return;
+    }
+    button.disabled = true;
+    button.textContent = selected > 1 ? `${selected}건 게시 중…` : '게시 중…';
+  });
   sync();
 })();
 </script>
