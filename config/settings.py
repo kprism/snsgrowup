@@ -19,8 +19,21 @@ ALLOWED_HOSTS = env.list(
     default=["localhost", "127.0.0.1", ".githubpreview.dev", ".app.github.dev"],
 )
 
+# GitHub Codespaces 등 HTTPS 리버스 프록시 뒤에서 원래 호스트와 스킴을 복원한다.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
+
+# Codespaces 프록시는 내부적으로 localhost Origin을 전달할 수 있다.
+# 실제 운영 도메인은 환경변수 CSRF_TRUSTED_ORIGINS로 추가한다.
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "https://*.app.github.dev",
+        "https://*.githubpreview.dev",
+    ],
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
