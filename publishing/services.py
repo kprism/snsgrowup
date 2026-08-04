@@ -13,11 +13,12 @@ def _task_defaults(channel):
 
 
 @transaction.atomic
-def ensure_batch_tasks(*, batch: PublishingBatch):
+def ensure_batch_tasks(*, batch: PublishingBatch, task_payloads=None):
     """기존 배치에도 콘텐츠×채널 조합의 개별 작업이 빠짐없이 존재하도록 보정한다."""
     contents = list(batch.contents.all())
     channels = list(batch.channels.select_related("platform").all())
     existing = set(batch.tasks.values_list("content_id", "channel_id"))
+    task_payloads = task_payloads or {}
 
     tasks = []
     for content in contents:
@@ -33,6 +34,7 @@ def ensure_batch_tasks(*, batch: PublishingBatch):
                     channel=channel,
                     status=status,
                     error_message=error_message,
+                    payload=task_payloads.get(key, {}),
                 )
             )
 
@@ -43,14 +45,14 @@ def ensure_batch_tasks(*, batch: PublishingBatch):
 
 
 @transaction.atomic
-def create_publishing_batch(*, owner, contents, channels, action):
+def create_publishing_batch(*, owner, contents, channels, action, task_payloads=None):
     selected_contents = list(contents)
     selected_channels = list(channels)
 
     batch = PublishingBatch.objects.create(owner=owner, action=action)
     batch.contents.set(selected_contents)
     batch.channels.set(selected_channels)
-    ensure_batch_tasks(batch=batch)
+    ensure_batch_tasks(batch=batch, task_payloads=task_payloads)
     return batch
 
 
