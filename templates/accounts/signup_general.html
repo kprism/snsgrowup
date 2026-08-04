@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}일반 사용자 가입 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="form-card">
+  <div class="form-head"><span class="eyebrow">일반 계정 사용자</span><h1>SNS 성장 계정을 만드세요</h1><p>가입 후 Facebook, Instagram, YouTube, Threads 계정을 연결할 수 있습니다.</p></div>
+  <form method="post" novalidate>{% csrf_token %}
+    {% for field in form %}<div class="field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text|safe }}</small>{% endif %}{% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}</div>{% endfor %}
+    {% for error in form.non_field_errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <button class="primary-button" type="submit">일반 사용자로 가입</button>
+  </form>
+  <a class="back-link" href="{% url 'accounts:signup_type' %}">← 회원 유형 다시 선택</a>
+</section>
+{% endblock %}
