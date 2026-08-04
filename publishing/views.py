@@ -6,6 +6,7 @@ from django.views.decorators.http import require_POST
 
 from .models import PublishingBatch, PublishingTask
 from .services import ensure_batch_tasks, retry_task
+from .tasks import publish_facebook_task
 
 
 @login_required
@@ -104,6 +105,28 @@ def batch_detail(request, pk):
         "publishing/batch_detail.html",
         {"batch": batch, "task_counts": task_counts, "progress": progress},
     )
+
+
+@login_required
+@require_POST
+def task_execute(request, pk):
+    task = get_object_or_404(
+        PublishingTask.objects.select_related("batch", "channel__platform"),
+        pk=pk,
+        batch__owner=request.user,
+    )
+    if task.channel.platform.code != "facebook":
+        messages.error(request, "현재 실제 게시 실행은 Facebook 작업만 지원합니다.")
+    elif task.status == PublishingTask.Status.PROCESSING:
+        messages.warning(request, "이미 처리 중인 작업입니다.")
+    elif task.status == PublishingTask.Status.SUCCESS:
+        messages.warning(request, "이미 성공한 작업입니다. 중복 게시를 방지하기 위해 다시 실행하지 않았습니다.")
+    elif not task.channel.is_connected:
+        messages.warning(request, "Facebook 페이지 연결이 필요합니다.")
+    else:
+        publish_facebook_task.delay(task.pk)
+        messages.success(request, "Facebook 게시 작업을 백그라운드에 등록했습니다.")
+    return redirect("publishing:batch_detail", pk=task.batch_id)
 
 
 @login_required
