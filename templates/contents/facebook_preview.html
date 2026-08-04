@@ -3,80 +3,66 @@
 {% block title %}Facebook 게시 미리보기 | SNSGROWUP{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="{% static 'css/facebook-preview.css' %}">{% endblock %}
 {% block content %}
-<section class="page-head compact-head">
+<section class="page-head compact-head preview-page-head">
   <div>
     <span class="eyebrow">FACEBOOK PREVIEW</span>
     <h1>Facebook 게시 미리보기</h1>
-    <p>실제 게시 전에 문구, 링크, 이미지 포함 여부를 확인합니다.</p>
+    <p>여러 콘텐츠를 빠르게 검토하고 필요한 항목만 펼쳐 수정합니다.</p>
   </div>
 </section>
 
 <form method="post" class="workspace-form">{% csrf_token %}
-  <section class="panel compact-panel">
-    <div class="panel-head">
-      <div>
-        <h2>발행 채널</h2>
-        <p>선택한 채널에 같은 콘텐츠가 채널별 작업으로 생성됩니다.</p>
+  <section class="preview-control-bar">
+    <div class="preview-control-main">
+      <span class="icon-3d icon-3d-send" aria-hidden="true"><i></i></span>
+      <div><strong>발행 채널</strong><small>선택한 {{ channels|length }}개 채널</small></div>
+      <div class="channel-picks preview-channel-list">
+        {% for channel in channels %}
+        <span class="channel-pick is-selected"><span class="brand-icon brand-{{ channel.platform.code }}">{% if channel.platform.code == 'facebook' %}<svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg>{% else %}{{ channel.platform.name|slice:":1" }}{% endif %}</span>{{ channel.profile_name }}</span>
+        {% endfor %}
       </div>
-      <span class="count-chip">{{ channels|length }}개</span>
     </div>
-    <div class="channel-picks preview-channel-list">
-      {% for channel in channels %}
-      <div class="channel-pick is-selected">
-        <span class="brand-icon brand-{{ channel.platform.code }}">
-          {% if channel.platform.code == 'facebook' %}
-          <svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg>
-          {% else %}{{ channel.platform.name|slice:":1" }}{% endif %}
-        </span>
-        <span>{{ channel.profile_name }}</span>
-        <span class="status-chip status-{{ channel.connection_status }}">{{ channel.get_connection_status_display }}</span>
-      </div>
-      {% endfor %}
-    </div>
+    <label class="hashtag-field"><span>공통 해시태그</span><input type="text" name="hashtags" placeholder="#창원 #경남 #지역뉴스"></label>
   </section>
 
-  <section class="panel compact-panel">
-    <div class="panel-head">
-      <div>
-        <h2>공통 해시태그</h2>
-        <p>선택한 모든 콘텐츠의 게시문 하단에 함께 저장됩니다.</p>
-      </div>
-    </div>
-    <div class="panel-body">
-      <input type="text" name="hashtags" placeholder="#창원 #경남 #지역뉴스" class="full-input">
-    </div>
-  </section>
-
+  <div class="preview-review-list">
   {% for item in contents %}
-  <section class="panel compact-panel facebook-preview-card">
-    <div class="panel-head">
-      <div>
-        <span class="status-chip">{{ item.get_source_type_display }}</span>
-        <h2>{{ item.title }}</h2>
-        <p>{{ item.created_at|date:"Y.m.d H:i" }}</p>
-      </div>
-    </div>
-    <div class="facebook-preview-layout">
-      <div class="facebook-mockup">
-        <div class="facebook-mockup-head">
-          <span class="brand-icon brand-facebook"><svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg></span>
-          <div><strong>{{ facebook_channels.0.profile_name }}</strong><small>게시 전 미리보기</small></div>
+    <details class="preview-review-item" {% if forloop.first %}open{% endif %}>
+      <summary>
+        <div class="preview-thumb">{% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="">{% else %}<span class="icon-3d icon-3d-document"><i></i></span>{% endif %}</div>
+        <div class="preview-summary-main">
+          <div class="row-meta"><span class="status-chip">{{ item.get_source_type_display }}</span><span>{{ item.created_at|date:"Y.m.d H:i" }}</span></div>
+          <strong>{{ item.title }}</strong>
+          <p>{{ item.body|default:item.title|truncatechars:130 }}</p>
         </div>
-        <p class="facebook-preview-text">{{ item.body|default:item.title|truncatechars:220 }}</p>
-        {% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="{{ item.title }}" class="facebook-preview-image">{% endif %}
-        {% if item.source_url %}<div class="facebook-link-preview"><span>{{ item.source_url }}</span><strong>{{ item.title }}</strong></div>{% endif %}
-      </div>
+        <div class="preview-summary-options">
+          <span>{% if item.source_url %}링크 가능{% else %}링크 없음{% endif %}</span>
+          <span>{% if item.representative_image %}이미지 포함{% else %}이미지 없음{% endif %}</span>
+          <b>수정 펼치기</b>
+        </div>
+      </summary>
 
-      <div class="preview-editor">
-        <label for="message_{{ item.pk }}">게시 문구</label>
-        <textarea id="message_{{ item.pk }}" name="message_{{ item.pk }}" rows="8">{{ item.body|default:item.title }}</textarea>
-        <label class="option-check"><input type="checkbox" name="include_link_{{ item.pk }}" {% if item.source_url %}checked{% else %}disabled{% endif %}> 링크 포함</label>
-        <label class="option-check"><input type="checkbox" name="include_image_{{ item.pk }}" {% if item.representative_image %}checked{% else %}disabled{% endif %}> 대표이미지 포함</label>
-        {% if item.source_url %}<a href="{{ item.source_url }}" target="_blank" rel="noopener" class="inline-link">원문 열기</a>{% endif %}
+      <div class="preview-detail-grid">
+        <div class="facebook-mockup compact-mockup">
+          <div class="facebook-mockup-head"><span class="brand-icon brand-facebook"><svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg></span><div><strong>{{ facebook_channels.0.profile_name }}</strong><small>게시 전 미리보기</small></div></div>
+          <p class="facebook-preview-text">{{ item.body|default:item.title|truncatechars:180 }}</p>
+          {% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="{{ item.title }}" class="facebook-preview-image">{% endif %}
+          {% if item.source_url %}<div class="facebook-link-preview"><span>{{ item.source_url }}</span><strong>{{ item.title }}</strong></div>{% endif %}
+        </div>
+
+        <div class="preview-editor">
+          <label for="message_{{ item.pk }}">게시 문구</label>
+          <textarea id="message_{{ item.pk }}" name="message_{{ item.pk }}" rows="6">{{ item.body|default:item.title }}</textarea>
+          <div class="preview-option-row">
+            <label class="option-check"><input type="checkbox" name="include_link_{{ item.pk }}" {% if item.source_url %}checked{% else %}disabled{% endif %}> 링크 포함</label>
+            <label class="option-check"><input type="checkbox" name="include_image_{{ item.pk }}" {% if item.representative_image %}checked{% else %}disabled{% endif %}> 대표이미지 포함</label>
+            {% if item.source_url %}<a href="{{ item.source_url }}" target="_blank" rel="noopener" class="inline-link">원문 열기</a>{% endif %}
+          </div>
+        </div>
       </div>
-    </div>
-  </section>
+    </details>
   {% endfor %}
+  </div>
 
   <div class="sticky-action-bar">
     <button type="submit" name="command" value="cancel" class="button soft">선택 화면으로 돌아가기</button>
