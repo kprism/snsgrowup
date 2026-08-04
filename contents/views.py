@@ -113,9 +113,19 @@ def facebook_preview(request):
             request.session.modified = True
             return redirect("contents:content_list")
 
+        publish_content_ids = request.POST.getlist("publish_content_ids")
+        selected_contents = contents.filter(pk__in=publish_content_ids)
+        if not selected_contents.exists():
+            messages.error(request, "게시할 콘텐츠를 한 건 이상 선택해 주세요.")
+            return render(
+                request,
+                "contents/facebook_preview.html",
+                {"contents": contents, "channels": channels, "facebook_channels": facebook_channels},
+            )
+
         hashtags = request.POST.get("hashtags", "").strip()
         task_payloads = {}
-        for content in contents:
+        for content in selected_contents:
             message = request.POST.get(f"message_{content.pk}", content.body).strip()
             include_link = request.POST.get(f"include_link_{content.pk}") == "on"
             include_image = request.POST.get(f"include_image_{content.pk}") == "on"
@@ -133,7 +143,7 @@ def facebook_preview(request):
 
         batch = create_publishing_batch(
             owner=request.user,
-            contents=contents,
+            contents=selected_contents,
             channels=channels,
             action=action,
             task_payloads=task_payloads,
@@ -148,7 +158,7 @@ def facebook_preview(request):
         request.session.pop(PREVIEW_SESSION_KEY, None)
         request.session.modified = True
         if queued:
-            messages.success(request, f"Facebook 게시 {queued}건을 시작했습니다.")
+            messages.success(request, f"선택한 Facebook 콘텐츠 {queued}건의 게시를 시작했습니다.")
         else:
             messages.warning(request, "게시 가능한 Facebook 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
         return redirect("publishing:publish_result", pk=batch.pk)
