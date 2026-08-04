@@ -1,0 +1,12 @@
+from django.urls import path
+
+from . import views
+
+app_name = "contents"
+
+urlpatterns = [
+    path("", views.content_list, name="content_list"),
+    path("add/", views.content_create, name="content_create"),
+    path("<int:pk>/edit/", views.content_update, name="content_update"),
+    path("<int:pk>/delete/", views.content_delete, name="content_delete"),
+]
