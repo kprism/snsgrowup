@@ -1,30 +1,25 @@
 {% extends "base.html" %}
 {% block title %}내 SNS 계정 | SNSGROWUP{% endblock %}
 {% block content %}
-<section class="page-head">
-  <div><span class="eyebrow">CHANNELS</span><h1>내 SNS 계정</h1><p>등록한 채널의 주소와 연결 상태를 한곳에서 관리합니다.</p></div>
-  <a class="button primary" href="{% url 'social_channels:account_create' %}">SNS 계정 추가</a>
-</section>
-
+<section class="page-head compact-head"><div><span class="eyebrow">CHANNELS</span><h1>내 SNS 계정</h1><p>등록 채널과 연결 상태를 한 화면에서 관리합니다.</p></div><a class="button primary" href="{% url 'social_channels:account_create' %}">SNS 계정 추가</a></section>
 {% if messages %}{% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}{% endif %}
-
-<div class="card-grid">
+<div class="card-grid compact-cards">
   {% for account in accounts %}
-  <article class="service-card">
-    <div class="platform-mark">{{ account.platform.name|slice:":1" }}</div>
-    <div class="service-card-body">
-      <span class="status-chip">{{ account.get_connection_status_display|default:account.connection_status }}</span>
-      <h2>{{ account.profile_name }}</h2>
-      <p>{{ account.platform.name }}</p>
-      <a href="{{ account.profile_url }}" target="_blank" rel="noopener">{{ account.profile_url }}</a>
-      <div class="actions">
-        <a class="button soft" href="{% url 'social_channels:account_update' account.pk %}">수정</a>
-        <a class="button danger" href="{% url 'social_channels:account_delete' account.pk %}">삭제</a>
-      </div>
+  <article class="service-card compact-service-card">
+    <div class="service-card-top">
+      <span class="brand-icon large brand-{{ account.platform.code }}">
+        {% if account.platform.code == 'facebook' %}<svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg>
+        {% elif account.platform.code == 'instagram' %}<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>
+        {% elif account.platform.code == 'youtube' %}<svg viewBox="0 0 24 24"><path d="M21 7.5a3 3 0 0 0-2.1-2.1C17 5 12 5 12 5s-5 0-6.9.4A3 3 0 0 0 3 7.5C2.6 9.4 2.6 12 2.6 12s0 2.6.4 4.5a3 3 0 0 0 2.1 2.1C7 19 12 19 12 19s5 0 6.9-.4a3 3 0 0 0 2.1-2.1c.4-1.9.4-4.5.4-4.5s0-2.6-.4-4.5z"/><path class="play" d="m10 9 5 3-5 3z"/></svg>
+        {% elif account.platform.code == 'threads' %}<svg viewBox="0 0 24 24"><path d="M12 3c5 0 8 3 8 8 0 6-3 10-8 10-5 0-8-3-8-9 0-5 3-9 8-9zm0 4c-3 0-5 2-5 5 0 4 2 6 5 6 2 0 4-1 4-3 0-1-1-2-2-2-2 0-3 1-3 2 0 1 1 2 2 2 2 0 3-1 3-3 0-3-1-5-4-5z"/></svg>
+        {% else %}{{ account.platform.name|slice:":1" }}{% endif %}
+      </span>
+      <span class="status-chip">{{ account.connection_status }}</span>
     </div>
+    <h2>{{ account.profile_name }}</h2><p>{{ account.platform.name }}</p>
+    <a class="profile-link" href="{{ account.profile_url }}" target="_blank" rel="noopener">{{ account.profile_url }}</a>
+    <div class="actions"><a class="button soft" href="{% url 'social_channels:account_update' account.pk %}">수정</a><a class="button danger" href="{% url 'social_channels:account_delete' account.pk %}">삭제</a></div>
   </article>
-  {% empty %}
-  <div class="empty-state"><h2>등록한 SNS 계정이 없습니다</h2><p>첫 채널을 등록하면 성장 통계와 콘텐츠 발행 기능을 연결할 수 있습니다.</p><a class="button primary" href="{% url 'social_channels:account_create' %}">첫 계정 등록</a></div>
-  {% endfor %}
+  {% empty %}<div class="empty-state compact-empty"><h2>등록한 SNS 계정이 없습니다</h2><p>첫 채널을 등록하면 성장 통계와 콘텐츠 발행 기능을 연결할 수 있습니다.</p><a class="button primary" href="{% url 'social_channels:account_create' %}">첫 계정 등록</a></div>{% endfor %}
 </div>
 {% endblock %}
