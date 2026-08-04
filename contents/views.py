@@ -1,12 +1,15 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
 from publishing.models import PublishingBatch, PublishingTask
 from publishing.services import create_publishing_batch
 from publishing.tasks import publish_facebook_task
 from social_channels.models import SocialAccount
 
+from .ai_service import generate_facebook_post
 from .forms import ContentItemForm
 from .models import ContentItem
 
@@ -90,6 +93,36 @@ def content_list(request):
 
 
 @login_required
+@require_POST
+def ai_facebook_draft(request):
+    selection = request.session.get(PREVIEW_SESSION_KEY) or {}
+    allowed_ids = {str(value) for value in selection.get("content_ids") or []}
+    content_id = str(request.POST.get("content_id") or "")
+    if not content_id or content_id not in allowed_ids:
+        return JsonResponse({"ok": False, "message": "AI 생성 대상 콘텐츠가 아닙니다."}, status=400)
+
+    content = get_object_or_404(ContentItem, pk=content_id, owner=request.user)
+    try:
+        draft = generate_facebook_post(
+            title=content.title,
+            body=content.body,
+            source_url=content.source_url,
+        )
+    except Exception as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "content_id": content.pk,
+            "message": draft.message,
+            "tags": draft.tags,
+            "hashtag_text": draft.hashtag_text,
+        }
+    )
+
+
+@login_required
 def facebook_preview(request):
     selection = request.session.get(PREVIEW_SESSION_KEY) or {}
     content_ids = selection.get("content_ids") or []
@@ -123,12 +156,15 @@ def facebook_preview(request):
                 {"contents": contents, "channels": channels, "facebook_channels": facebook_channels},
             )
 
-        hashtags = request.POST.get("hashtags", "").strip()
+        common_hashtags = request.POST.get("hashtags", "").strip()
         task_payloads = {}
         for content in selected_contents:
             message = request.POST.get(f"message_{content.pk}", content.body).strip()
             include_link = request.POST.get(f"include_link_{content.pk}") == "on"
             include_image = request.POST.get(f"include_image_{content.pk}") == "on"
+            entered_tags = request.POST.get(f"tags_{content.pk}", "").strip()
+            recommended_tags = request.POST.get(f"recommended_tags_{content.pk}", "").strip()
+            hashtags = entered_tags or common_hashtags or recommended_tags
             payload = {
                 "title": content.title,
                 "message": message,
