@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}회원 유형 선택 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="intro-block">
+    <span class="eyebrow">SNS 성장 운영을 시작합니다</span>
+    <h1>어떤 방식으로 이용하시나요?</h1>
+    <p>회원 유형에 따라 가입 항목과 대시보드 기능이 달라집니다.</p>
+  </div>
+  <div class="type-grid">
+    <a class="type-card" href="{% url 'accounts:signup_general' %}">
+      <span class="type-icon">📱</span><h2>일반 계정 사용자</h2>
+      <p>개인·사업자·크리에이터가 콘텐츠를 만들고 SNS 채널을 성장시킵니다.</p>
+      <strong>일반 사용자로 가입</strong>
+    </a>
+    <a class="type-card" href="{% url 'accounts:signup_press' %}">
+      <span class="type-icon">📰</span><h2>신문사 사용자</h2>
+      <p>신문사 RSS 기사를 수집하고 여러 SNS 채널에 재가공·발행합니다.</p>
+      <strong>신문사 사용자로 가입</strong>
+    </a>
+  </div>
+</section>
+{% endblock %}
