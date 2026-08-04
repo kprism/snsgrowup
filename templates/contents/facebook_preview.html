@@ -7,11 +7,11 @@
   <div>
     <span class="eyebrow">FACEBOOK PREVIEW</span>
     <h1>Facebook 게시 미리보기</h1>
-    <p>여러 콘텐츠를 빠르게 검토하고 필요한 항목만 펼쳐 수정합니다.</p>
+    <p>게시 내용을 확인한 뒤 바로 Facebook에 게시합니다.</p>
   </div>
 </section>
 
-<form method="post" class="workspace-form">{% csrf_token %}
+<form method="post" class="workspace-form" id="facebookPublishForm">{% csrf_token %}
   <section class="preview-control-bar">
     <div class="preview-control-main">
       <span class="icon-3d icon-3d-send" aria-hidden="true"><i></i></span>
@@ -66,7 +66,19 @@
 
   <div class="sticky-action-bar">
     <button type="submit" name="command" value="cancel" class="button soft">선택 화면으로 돌아가기</button>
-    <button type="submit" name="command" value="confirm" class="button primary">미리보기 확정 · 작업 생성</button>
+    <button type="submit" name="command" value="confirm" class="button primary" id="publishNowButton">지금 게시</button>
   </div>
 </form>
+<script>
+(() => {
+  const form = document.getElementById('facebookPublishForm');
+  const button = document.getElementById('publishNowButton');
+  if (!form || !button) return;
+  form.addEventListener('submit', event => {
+    if (event.submitter !== button) return;
+    button.disabled = true;
+    button.textContent = '게시 중…';
+  });
+})();
+</script>
 {% endblock %}
