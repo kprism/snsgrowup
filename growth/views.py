@@ -52,7 +52,7 @@ def _registered_accounts(user):
 
 
 def _content_samples(user):
-    return list(ContentItem.objects.filter(owner=user).order_by("-created_at").values("title", "body")[:15])
+    return list(ContentItem.objects.filter(owner=user).order_by("-created_at").values("title", "body")[:20])
 
 
 def _keyword_tokens(value: str) -> set[str]:
@@ -150,7 +150,6 @@ def action_center(request):
         "completed": platform_actions.filter(status=GrowthAction.Status.COMPLETED).count(),
         "started": platform_actions.filter(status=GrowthAction.Status.STARTED).count(),
     }
-    session_key = f"growth_{selected_platform}" if selected_platform else "growth_none"
     return render(request, "growth/action_center.html", {
         "accounts": accounts,
         "selected_account": selected_account,
@@ -159,8 +158,6 @@ def action_center(request):
         "actions": active_actions,
         "history_actions": history_actions,
         "totals": totals,
-        "suggestions": request.session.get(f"{session_key}_keyword_suggestions", []),
-        "analysis_summary": request.session.get(f"{session_key}_analysis_summary", ""),
         "growth_chart": _daily_growth_chart(request.user, selected_platform) if selected_platform else [],
     })
 
@@ -168,7 +165,6 @@ def action_center(request):
 @login_required
 @require_POST
 def generate_actions(request):
-    keyword = request.POST.get("keyword", "").strip()
     account = get_object_or_404(
         SocialAccount.objects.select_related("platform"),
         pk=request.POST.get("account_id"),
@@ -182,13 +178,11 @@ def generate_actions(request):
             profile_name=account.profile_name,
             platform_name=account.platform.name,
             content_samples=_content_samples(request.user),
-            requested_keyword=keyword,
         )
     except Exception as exc:
         messages.error(request, f"AI 성장 전략 생성에 실패했습니다. 잠시 후 다시 시도해 주세요. ({exc})")
         return redirect(f"/growth/?account={account.pk}")
 
-    selected_keyword = keyword or plan.keywords[0]
     GrowthAction.objects.filter(
         owner=request.user,
         platform=platform,
@@ -204,26 +198,26 @@ def generate_actions(request):
             score = max(1, min(100, int(item.get("score", 80))))
         except (TypeError, ValueError):
             score = 80
+        search_keyword = str(item.get("search_keyword") or item.get("title") or "").strip()[:120]
+        if not search_keyword:
+            continue
         GrowthAction.objects.create(
             owner=request.user,
             platform=platform,
-            keyword=selected_keyword[:120],
+            keyword=search_keyword,
             action_type=action_type,
-            title=str(item.get("title") or f"{selected_keyword} 성장 미션 {index + 1}")[:200],
-            target_url=_platform_search_url(platform, selected_keyword, account.profile_url),
-            target_label=f"{account.platform.name} · {selected_keyword}"[:120],
-            recommendation_reason=str(item.get("reason") or "AI가 채널 콘텐츠 성향을 분석해 추천했습니다.")[:255],
+            title=str(item.get("title") or f"{search_keyword} 성장 미션 {index + 1}")[:200],
+            target_url=_platform_search_url(platform, search_keyword, account.profile_url),
+            target_label=f"{account.platform.name} · {search_keyword}"[:120],
+            recommendation_reason=str(item.get("reason") or "AI가 미션별로 적합한 검색어를 생성했습니다.")[:255],
             priority_score=score,
             suggested_comment=str(item.get("comment") or ""),
         )
         created += 1
 
-    session_key = f"growth_{platform}"
-    request.session[f"{session_key}_keyword_suggestions"] = plan.keywords
-    request.session[f"{session_key}_analysis_summary"] = plan.summary
     request.session["growth_selected_account_id"] = account.pk
     request.session.modified = True
-    messages.success(request, f"{account.platform.name} 성장 미션 {created}개를 만들었습니다.")
+    messages.success(request, f"{account.platform.name} 미션 {created}개와 미션별 검색키워드를 만들었습니다.")
     return redirect(f"/growth/?account={account.pk}")
 
 
@@ -250,12 +244,7 @@ def prepare_action(request, pk):
 @login_required
 @require_POST
 def use_content_for_post(request, pk, content_pk):
-    action = get_object_or_404(
-        GrowthAction,
-        pk=pk,
-        owner=request.user,
-        action_type=GrowthAction.ActionType.POST,
-    )
+    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user, action_type=GrowthAction.ActionType.POST)
     content = get_object_or_404(ContentItem, pk=content_pk, owner=request.user)
     account = _account_for_action(request.user, action)
     if not account or action.platform != "facebook":
@@ -278,12 +267,7 @@ def use_content_for_post(request, pk, content_pk):
 @login_required
 @require_POST
 def generate_story_video(request, pk, content_pk):
-    action = get_object_or_404(
-        GrowthAction,
-        pk=pk,
-        owner=request.user,
-        action_type=GrowthAction.ActionType.STORY,
-    )
+    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user, action_type=GrowthAction.ActionType.STORY)
     content = get_object_or_404(ContentItem, pk=content_pk, owner=request.user)
     if not content.representative_image:
         messages.error(request, "스토리 영상 제작에는 대표이미지가 필요합니다.")
@@ -292,10 +276,20 @@ def generate_story_video(request, pk, content_pk):
     output_dir = Path(settings.MEDIA_ROOT) / "growth_story_exports" / str(request.user.pk)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"story_{content.pk}_{uuid.uuid4().hex[:8]}.mp4"
+
+    # 한 장의 사진을 두 깊이 레이어로 분리해 서로 다른 속도로 이동시키고,
+    # 전경 카드와 빛 번짐을 추가해 단순 확대보다 역동적인 2.5D 움직임을 만든다.
     filter_complex = (
-        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,zoompan=z='min(zoom+0.0015,1.08)':d=125:s=1080x1920[v];"
-        "[1:a][2:a]amix=inputs=2:duration=shortest,volume=0.08[a]"
+        "[0:v]split=2[bgsrc][fgsrc];"
+        "[bgsrc]scale=1320:2347:force_original_aspect_ratio=increase,crop=1320:2347,"
+        "gblur=sigma=18,zoompan=z='1.05+0.015*sin(on/18)':x='70+35*sin(on/22)':y='130+45*cos(on/26)':d=125:s=1080x1920[bg];"
+        "[fgsrc]scale=980:1420:force_original_aspect_ratio=decrease,"
+        "pad=980:1420:(ow-iw)/2:(oh-ih)/2:color=black@0,"
+        "zoompan=z='1.0+0.025*sin(on/20)':x='iw/2-(iw/zoom/2)+18*sin(on/16)':y='ih/2-(ih/zoom/2)+22*cos(on/19)':d=125:s=980x1420[fg];"
+        "[bg][fg]overlay=x='50+18*sin(t*1.8)':y='220+22*cos(t*1.5)':format=auto[tmp];"
+        "color=c=white@0.10:s=240x2200:d=5,format=rgba[sheen];"
+        "[tmp][sheen]overlay=x='-260+t*330':y=-120,fade=t=in:st=0:d=.35:alpha=1,fade=t=out:st=4.3:d=.7:alpha=1[v];"
+        "[1:a][2:a]amix=inputs=2:duration=shortest,volume=0.07[a]"
     )
     command = [
         "ffmpeg", "-y", "-loop", "1", "-i", content.representative_image.path,
@@ -307,16 +301,11 @@ def generate_story_video(request, pk, content_pk):
         "-shortest", str(output_path),
     ]
     try:
-        subprocess.run(command, check=True, capture_output=True, timeout=45)
+        subprocess.run(command, check=True, capture_output=True, timeout=60)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         messages.error(request, f"스토리 영상 생성에 실패했습니다: {str(exc)[:120]}")
         return redirect("growth:prepare_action", pk=action.pk)
-    return FileResponse(
-        open(output_path, "rb"),
-        as_attachment=True,
-        filename=f"SNSGROWUP_story_{content.pk}.mp4",
-        content_type="video/mp4",
-    )
+    return FileResponse(open(output_path, "rb"), as_attachment=True, filename=f"SNSGROWUP_story_{content.pk}.mp4", content_type="video/mp4")
 
 
 @login_required
