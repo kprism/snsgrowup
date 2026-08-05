@@ -84,3 +84,26 @@ class PublishingTask(models.Model):
 
     def __str__(self):
         return f"#{self.batch_id} · {self.content.title} · {self.channel.profile_name}"
+
+
+class AutomationSetting(models.Model):
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="automation_setting",
+    )
+    enabled = models.BooleanField(default=False)
+    min_interval_seconds = models.PositiveIntegerField(default=48)
+    max_interval_seconds = models.PositiveIntegerField(default=90)
+    use_random_delay = models.BooleanField(default=True)
+    retry_enabled = models.BooleanField(default=True)
+    use_ai = models.BooleanField(default=True)
+    auto_tags = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "자동발행 설정"
+        verbose_name_plural = "자동발행 설정"
+
+    def __str__(self):
+        return f"{self.owner} 자동발행 설정"
