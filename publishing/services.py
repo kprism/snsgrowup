@@ -1,6 +1,10 @@
-from django.db import transaction
+import random
+from datetime import timedelta
 
-from .models import PublishingBatch, PublishingTask
+from django.db import transaction
+from django.utils import timezone
+
+from .models import AutomationSetting, PublishQueue, PublishingBatch, PublishingTask
 
 
 def _task_defaults(channel):
@@ -57,10 +61,50 @@ def create_publishing_batch(*, owner, contents, channels, action, task_payloads=
 
 
 @transaction.atomic
+def enqueue_batch_tasks(*, batch: PublishingBatch):
+    """게시 가능한 작업을 사용자 간격 설정에 맞춰 순차 Queue로 등록한다."""
+    setting, _ = AutomationSetting.objects.get_or_create(owner=batch.owner)
+    minimum = max(1, setting.min_interval_seconds)
+    maximum = max(minimum, setting.max_interval_seconds)
+    cursor = timezone.now()
+    created = 0
+
+    tasks = batch.tasks.select_related("channel__platform").filter(status=PublishingTask.Status.PENDING)
+    for task in tasks:
+        if task.channel.platform.code != "facebook":
+            continue
+        delay = random.randint(minimum, maximum) if setting.use_random_delay else minimum
+        cursor += timedelta(seconds=delay)
+        _, was_created = PublishQueue.objects.get_or_create(
+            task=task,
+            defaults={
+                "scheduled_at": cursor,
+                "random_delay": delay,
+                "status": PublishQueue.Status.SCHEDULED,
+            },
+        )
+        created += int(was_created)
+
+    if created and not batch.scheduled_at:
+        first_queue = PublishQueue.objects.filter(task__batch=batch).order_by("scheduled_at").first()
+        if first_queue:
+            batch.scheduled_at = first_queue.scheduled_at
+            batch.save(update_fields=["scheduled_at", "updated_at"])
+    return created
+
+
+@transaction.atomic
 def retry_task(*, task: PublishingTask):
     status, error_message = _task_defaults(task.channel)
     task.status = status
     task.error_message = error_message
     task.save(update_fields=["status", "error_message", "updated_at"])
+    queue = PublishQueue.objects.filter(task=task).first()
+    if queue:
+        queue.status = PublishQueue.Status.SCHEDULED
+        queue.scheduled_at = timezone.now()
+        queue.next_retry_at = None
+        queue.last_error = ""
+        queue.save(update_fields=["status", "scheduled_at", "next_retry_at", "last_error", "updated_at"])
     task.batch.refresh_status()
     return task
