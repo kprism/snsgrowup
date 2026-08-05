@@ -6,96 +6,107 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from contents.models import ContentItem
+from social_channels.models import SocialAccount
+
+from .ai_service import generate_growth_plan
 from .models import GrowthAction
 
 
+ACTION_TYPES = {value for value, _label in GrowthAction.ActionType.choices}
+
+
 def _instagram_keyword_url(keyword: str) -> str:
-    tag = "".join(keyword.split()).lstrip("#")
+    tag = "".join(keyword.split())
     return f"https://www.instagram.com/explore/tags/{quote(tag)}/"
 
 
-def _create_instagram_actions(*, owner, keyword: str) -> int:
-    target_url = _instagram_keyword_url(keyword)
-    GrowthAction.objects.filter(
-        owner=owner,
-        status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED, GrowthAction.Status.SKIPPED],
-    ).delete()
-
-    specs = [
-        {
-            "action_type": GrowthAction.ActionType.POST,
-            "title": f"'{keyword}' 관련 게시물 1건 발행",
-            "priority_score": 100,
-            "recommendation_reason": "먼저 내 계정의 주제 신호를 만든 뒤 관련 계정과 상호작용하면 방문 전환을 측정하기 쉽습니다.",
-        },
-        {
-            "action_type": GrowthAction.ActionType.COMMENT,
-            "title": f"'{keyword}' 상위 게시물 3건에 진짜 의견 남기기",
-            "priority_score": 96,
-            "recommendation_reason": "내용과 직접 연결된 구체적인 댓글은 단순 좋아요보다 프로필 방문 가능성이 높습니다.",
-            "suggested_comment": "게시물의 구체적인 내용을 한 가지 언급하고, 내 경험이나 질문을 한 문장 덧붙이세요. 같은 문구를 반복 복사하지 마세요.",
-        },
-        {
-            "action_type": GrowthAction.ActionType.LIKE,
-            "title": f"'{keyword}' 최근 게시물 8건 살펴보고 좋아요",
-            "priority_score": 90,
-            "recommendation_reason": "최근에도 꾸준히 활동하며 댓글에 반응하는 계정을 먼저 선택하세요. 무작위 연속 클릭은 피합니다.",
-        },
-        {
-            "action_type": GrowthAction.ActionType.STORY,
-            "title": f"'{keyword}' 관련 활동 계정 스토리 5건 보기",
-            "priority_score": 84,
-            "recommendation_reason": "최근 게시와 스토리가 모두 활성화된 계정은 현재 접속 가능성이 상대적으로 높습니다.",
-        },
-        {
-            "action_type": GrowthAction.ActionType.FOLLOW,
-            "title": f"'{keyword}' 관련성이 높은 계정 1명 팔로우 검토",
-            "priority_score": 76,
-            "recommendation_reason": "최근 활동, 주제 일치, 실제 댓글 교류가 확인되는 계정만 선택하세요. 팔로우는 자동이 아니라 최종 확인 후 직접 수행합니다.",
-        },
-    ]
-
-    actions = [
-        GrowthAction(
-            owner=owner,
-            platform="instagram",
-            keyword=keyword,
-            target_url=target_url,
-            target_label=f"Instagram #{keyword}",
-            status=GrowthAction.Status.READY,
-            **spec,
-        )
-        for spec in specs
-    ]
-    GrowthAction.objects.bulk_create(actions)
-    return len(actions)
+def _page_context(user):
+    account = (
+        SocialAccount.objects.filter(user=user, is_active=True, platform__code="facebook")
+        .select_related("platform")
+        .first()
+    )
+    contents = list(
+        ContentItem.objects.filter(owner=user)
+        .order_by("-created_at")
+        .values("title", "body")[:15]
+    )
+    return account, contents
 
 
 @login_required
 def action_center(request):
-    if request.method == "POST" and request.POST.get("command") == "generate":
-        keyword = request.POST.get("keyword", "").strip()
-        if not keyword:
-            messages.error(request, "성장할 주제 또는 키워드를 입력해 주세요.")
-        elif len(keyword) > 120:
-            messages.error(request, "키워드는 120자 이하로 입력해 주세요.")
-        else:
-            count = _create_instagram_actions(owner=request.user, keyword=keyword)
-            messages.success(request, f"'{keyword}' 기준 Instagram 성장 액션 {count}건을 만들었습니다.")
-        return redirect("growth:action_center")
-
     actions = GrowthAction.objects.filter(owner=request.user)
     totals = {
         "all": actions.count(),
         "completed": actions.filter(status=GrowthAction.Status.COMPLETED).count(),
         "started": actions.filter(status=GrowthAction.Status.STARTED).count(),
     }
-    active_keyword = actions.exclude(keyword="").values_list("keyword", flat=True).first() or ""
+    suggestions = request.session.get("growth_keyword_suggestions", [])
+    analysis_summary = request.session.get("growth_analysis_summary", "")
     return render(
         request,
         "growth/action_center.html",
-        {"actions": actions, "totals": totals, "active_keyword": active_keyword},
+        {
+            "actions": actions,
+            "totals": totals,
+            "suggestions": suggestions,
+            "analysis_summary": analysis_summary,
+        },
     )
+
+
+@login_required
+@require_POST
+def generate_actions(request):
+    keyword = request.POST.get("keyword", "").strip()
+    account, contents = _page_context(request.user)
+    profile_name = account.profile_name if account else request.user.display_name
+
+    try:
+        plan = generate_growth_plan(
+            profile_name=profile_name,
+            content_samples=contents,
+            requested_keyword=keyword,
+        )
+    except Exception as exc:
+        messages.error(request, f"AI 성장 전략 생성에 실패했습니다: {exc}")
+        return redirect("growth:action_center")
+
+    selected_keyword = keyword or plan.keywords[0]
+    GrowthAction.objects.filter(
+        owner=request.user,
+        status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED],
+    ).delete()
+
+    created = 0
+    for index, item in enumerate(plan.actions):
+        action_type = str(item.get("type") or "like").strip().lower()
+        if action_type not in ACTION_TYPES:
+            action_type = GrowthAction.ActionType.LIKE
+        score = item.get("score", 80)
+        try:
+            score = max(1, min(100, int(score)))
+        except (TypeError, ValueError):
+            score = 80
+        GrowthAction.objects.create(
+            owner=request.user,
+            action_type=action_type,
+            title=str(item.get("title") or f"{selected_keyword} 성장 미션 {index + 1}")[:200],
+            target_url=_instagram_keyword_url(selected_keyword),
+            target_label=selected_keyword[:120],
+            recommendation_reason=str(item.get("reason") or "AI가 페이지 콘텐츠 성향을 분석해 추천했습니다.")[:255],
+            priority_score=score,
+            suggested_comment=str(item.get("comment") or ""),
+        )
+        created += 1
+
+    request.session["growth_keyword_suggestions"] = plan.keywords
+    request.session["growth_analysis_summary"] = plan.summary
+    request.session.modified = True
+    messages.success(request, f"페이지 콘텐츠 성향을 분석해 AI 성장 미션 {created}개를 만들었습니다.")
+    return redirect("growth:action_center")
 
 
 @login_required
