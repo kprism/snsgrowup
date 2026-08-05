@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load growth_metrics %}
 {% block title %}성장 액션 | SNSGROWUP{% endblock %}
 {% block content %}
 <div class="growth-page">
@@ -68,8 +69,9 @@
   </div>
 
   <div class="growth-column growth-chart-column">
-    <section class="growth-section-card">
-      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 일자별 그래프</h2><p>최근 7일간 완료한 성장 액션 수입니다.</p></div>
+    {% channel_metric_panel selected_account %}
+    <section class="growth-section-card action-count-panel">
+      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 실행 작업 그래프</h2><p>최근 7일간 완료한 성장 액션 수입니다.</p></div>
       <div class="growth-chart-wrap"><div class="growth-chart">{% for day in growth_chart %}<div class="growth-chart-day{% if day.is_today %} is-today{% endif %}"><div class="growth-chart-bar-wrap"><div class="growth-chart-bar" style="height:{{ day.height }}%"></div></div><strong class="growth-chart-value">{{ day.total }}</strong><span class="growth-chart-label">{{ day.label }}</span></div>{% endfor %}</div><p class="growth-chart-caption">완료 처리된 {{ selected_account.platform.name }} 작업을 기준으로 집계합니다.</p></div>
     </section>
   </div>
