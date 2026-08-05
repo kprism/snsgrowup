@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from publishing.models import PublishingBatch
+from publishing.models import AutomationSetting, PublishingBatch
 from publishing.services import create_publishing_batch, enqueue_batch_tasks
 from social_channels.models import SocialAccount
 
@@ -15,6 +15,7 @@ from .models import ContentItem
 
 PREVIEW_SESSION_KEY = "publishing_preview_selection"
 BULK_DELETE_ACTION = "delete"
+QUICK_PUBLISH_COMMAND = "quick_publish"
 
 
 def _selected_objects(*, user, content_ids, channel_ids):
@@ -32,6 +33,38 @@ def _delete_selected_contents(*, user, content_ids) -> int:
     return len(selected)
 
 
+def _quick_publish_payloads(*, owner, contents, channels):
+    setting, _ = AutomationSetting.objects.get_or_create(owner=owner)
+    payloads = {}
+    ai_fallbacks = 0
+
+    for content in contents:
+        message = content.body.strip() or content.title
+        hashtags = ""
+        if setting.use_ai:
+            try:
+                draft = generate_facebook_post(title=content.title, body=content.body, source_url=content.source_url)
+                message = draft.message.strip() or message
+                if setting.auto_tags:
+                    hashtags = draft.hashtag_text.strip()
+            except Exception:
+                ai_fallbacks += 1
+
+        payload = {
+            "title": content.title,
+            "message": message,
+            "hashtags": hashtags,
+            "include_link": bool(content.source_url),
+            "include_image": bool(content.representative_image),
+            "link": content.source_url or "",
+            "image": content.representative_image.url if content.representative_image else "",
+            "quick_publish": True,
+        }
+        for channel in channels:
+            payloads[(content.pk, channel.pk)] = payload.copy()
+    return payloads, ai_fallbacks
+
+
 @login_required
 def content_list(request):
     items = ContentItem.objects.filter(owner=request.user).order_by("-created_at")
@@ -41,6 +74,7 @@ def content_list(request):
         content_ids = request.POST.getlist("content_ids")
         channel_ids = request.POST.getlist("channel_ids")
         action = request.POST.get("action", "")
+        command = request.POST.get("command", "")
 
         if not content_ids:
             messages.error(request, "작업할 콘텐츠를 한 건 이상 선택해 주세요.")
@@ -55,6 +89,31 @@ def content_list(request):
 
         if not selected_channels.exists():
             messages.error(request, "발행할 SNS 채널을 한 개 이상 선택해 주세요.")
+        elif command == QUICK_PUBLISH_COMMAND:
+            if selected_channels.exclude(platform__code="facebook").exists():
+                messages.error(request, "바로 게시는 현재 Facebook 연결 채널만 지원합니다.")
+                return redirect("contents:content_list")
+            task_payloads, ai_fallbacks = _quick_publish_payloads(
+                owner=request.user,
+                contents=list(selected_contents),
+                channels=list(selected_channels),
+            )
+            batch = create_publishing_batch(
+                owner=request.user,
+                contents=selected_contents,
+                channels=selected_channels,
+                action=PublishingBatch.Action.UPLOAD,
+                task_payloads=task_payloads,
+            )
+            queued = enqueue_batch_tasks(batch=batch)
+            if queued:
+                message = f"선택한 콘텐츠 {queued}건을 AI 처리 후 랜덤 발행 Queue에 등록했습니다."
+                if ai_fallbacks:
+                    message += f" AI 생성에 실패한 {ai_fallbacks}건은 원문으로 등록했습니다."
+                messages.success(request, message)
+                return redirect("publishing:publish_result", pk=batch.pk)
+            messages.warning(request, "Queue에 등록할 수 있는 Facebook 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
+            return redirect("publishing:batch_detail", pk=batch.pk)
         elif action not in PublishingBatch.Action.values:
             messages.error(request, "실행할 작업을 선택해 주세요.")
         elif action == PublishingBatch.Action.UPLOAD and selected_channels.filter(platform__code="facebook").exists():
