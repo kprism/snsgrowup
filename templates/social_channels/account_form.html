@@ -2,14 +2,72 @@
 {% block title %}SNS 계정 등록 | SNSGROWUP{% endblock %}
 {% block content %}
 <section class="form-shell">
-  <div class="form-intro"><span class="eyebrow">CONNECT</span><h1>{% if account %}SNS 계정 수정{% else %}SNS 계정 등록{% endif %}</h1><p>프로필 주소를 먼저 등록하고, 공식 API 연결은 다음 단계에서 진행합니다.</p></div>
-  <form method="post" class="form-card" novalidate>
+  <div class="form-intro"><span class="eyebrow">CONNECT</span><h1>{% if account %}SNS 계정 수정{% else %}SNS 계정 등록{% endif %}</h1><p>채널을 선택하고 프로필 주소를 등록하면, 공식 API 연결 단계로 바로 이어집니다.</p></div>
+  <form method="post" class="form-card channel-register-card" novalidate>
     {% csrf_token %}
-    {% for field in form %}
-      <div class="field-group"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
-    {% endfor %}
+
+    <div class="field-group channel-picker-field">
+      <label for="{{ form.platform.id_for_label }}">{{ form.platform.label }}</label>
+      <div class="channel-visual-picker" data-channel-picker>
+        <button type="button" class="channel-choice" data-platform-code="facebook" aria-label="Facebook 선택">
+          <span class="channel-choice-icon facebook"><svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg></span>
+          <span><strong>Facebook</strong><small>페이지 연결·게시·성장 지표</small></span>
+        </button>
+        <button type="button" class="channel-choice" data-platform-code="instagram" aria-label="Instagram 선택">
+          <span class="channel-choice-icon instagram"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg></span>
+          <span><strong>Instagram</strong><small>프로 계정 연결·피드·릴스 준비</small></span>
+        </button>
+        <button type="button" class="channel-choice" data-platform-code="threads" aria-label="Threads 선택">
+          <span class="channel-choice-icon threads"><svg viewBox="0 0 24 24"><path d="M12 3c5 0 8 3 8 8 0 6-3 10-8 10-5 0-8-3-8-9 0-5 3-9 8-9zm0 4c-3 0-5 2-5 5 0 4 2 6 5 6 2 0 4-1 4-3 0-1-1-2-2-2-2 0-3 1-3 2 0 1 1 2 2 2 2 0 3-1 3-3 0-3-1-5-4-5z"/></svg></span>
+          <span><strong>Threads</strong><small>텍스트 중심 성장 채널</small></span>
+        </button>
+        <button type="button" class="channel-choice" data-platform-code="youtube" aria-label="YouTube 선택">
+          <span class="channel-choice-icon youtube"><svg viewBox="0 0 24 24"><path d="M21 7.5a3 3 0 0 0-2.1-2.1C17 5 12 5 12 5s-5 0-6.9.4A3 3 0 0 0 3 7.5C2.6 9.4 2.6 12 2.6 12s0 2.6.4 4.5a3 3 0 0 0 2.1 2.1C7 19 12 19 12 19s5 0 6.9-.4a3 3 0 0 0 2.1-2.1c.4-1.9.4-4.5.4-4.5s0-2.6-.4-4.5z"/><path class="play" d="m10 9 5 3-5 3z"/></svg></span>
+          <span><strong>YouTube</strong><small>영상·쇼츠 채널</small></span>
+        </button>
+      </div>
+      <div class="native-platform-select">{{ form.platform }}</div>
+      {% for error in form.platform.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    </div>
+
+    <div class="field-group"><label for="{{ form.profile_name.id_for_label }}">{{ form.profile_name.label }}</label>{{ form.profile_name }}{% for error in form.profile_name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+    <div class="field-group"><label for="{{ form.profile_url.id_for_label }}">{{ form.profile_url.label }}</label>{{ form.profile_url }}{% for error in form.profile_url.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
     {% if form.non_field_errors %}<div class="field-error">{{ form.non_field_errors }}</div>{% endif %}
-    <div class="actions"><button class="button primary" type="submit">저장</button><a class="button soft" href="{% url 'social_channels:account_list' %}">취소</a></div>
+
+    <div class="channel-next-guide" data-next-guide>
+      <strong>다음 단계</strong>
+      <span>채널을 선택하면 저장 후 진행할 연결 단계를 알려드립니다.</span>
+    </div>
+
+    <div class="actions"><button class="button primary" type="submit">저장하고 연결하기</button><a class="button soft" href="{% url 'social_channels:account_list' %}">취소</a></div>
   </form>
 </section>
+<script>
+(function(){
+  const select=document.getElementById('{{ form.platform.id_for_label }}');
+  if(!select) return;
+  const buttons=[...document.querySelectorAll('[data-platform-code]')];
+  const guide=document.querySelector('[data-next-guide] span');
+  const messages={
+    facebook:'저장 후 Facebook 페이지 선택과 권한 연결 화면으로 이동합니다.',
+    instagram:'저장 후 Instagram 프로페셔널 계정 연결 화면으로 바로 이동합니다.',
+    threads:'저장 후 채널 목록에서 Threads 연결 준비 상태를 확인합니다.',
+    youtube:'저장 후 채널 목록에서 YouTube 연결 준비 상태를 확인합니다.'
+  };
+  function sync(){
+    const option=select.options[select.selectedIndex];
+    const text=(option?.text||'').toLowerCase();
+    const matched=buttons.find(btn=>text.includes(btn.dataset.platformCode));
+    buttons.forEach(btn=>btn.classList.toggle('active',btn===matched));
+    if(guide) guide.textContent=matched ? messages[matched.dataset.platformCode] : '저장 후 공식 API 연결 단계로 이어집니다.';
+  }
+  buttons.forEach(btn=>btn.addEventListener('click',()=>{
+    const code=btn.dataset.platformCode;
+    const option=[...select.options].find(item=>(item.text||'').toLowerCase().includes(code));
+    if(option){ select.value=option.value; select.dispatchEvent(new Event('change',{bubbles:true})); sync(); }
+  }));
+  select.addEventListener('change',sync);
+  sync();
+})();
+</script>
 {% endblock %}
