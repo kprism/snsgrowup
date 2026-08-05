@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}성장 작업 준비 | SNSGROWUP{% endblock %}
+{% block content %}
+<div class="growth-page">
+  <section class="page-head compact-head">
+    <div>
+      <span class="eyebrow">ACTION PREP</span>
+      <h1>{{ action.get_action_type_display }} 작업 준비</h1>
+      <p>{{ action.title }}</p>
+    </div>
+    <a class="button soft" href="{% url 'growth:action_center' %}{% if account %}?account={{ account.pk }}{% endif %}">성장 액션으로</a>
+  </section>
+
+  {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
+
+  <section class="growth-prepare-grid">
+    <article class="growth-section-card growth-brief-card">
+      <div class="growth-section-head"><h2>무엇을 하면 되나요?</h2><p>검색창만 던져주지 않고, 작업에 맞는 준비물을 먼저 보여드립니다.</p></div>
+      <div class="growth-prepare-body">
+        <div class="growth-action-top"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span class="growth-action-type">{{ action.get_action_type_display }}</span><span class="growth-score">{{ action.priority_score }}점</span></div>
+        <h3>{{ action.title }}</h3>
+        <p>{{ action.recommendation_reason }}</p>
+        {% if action.suggested_comment %}<div class="growth-comment"><strong>AI 추천 댓글 초안</strong><span>{{ action.suggested_comment }}</span><button type="button" class="button soft button-small copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">복사</button></div>{% endif %}
+      </div>
+    </article>
+
+    <article class="growth-section-card">
+      <div class="growth-section-head"><h2>{{ account.platform.name|default:action.platform }} 실행 도구</h2><p>작업 종류에 맞는 화면만 엽니다.</p></div>
+      <div class="growth-prepare-body">
+        {% if action.action_type == 'post' %}
+          <p class="growth-help">아래 관련 콘텐츠를 선택하면 본문과 대표이미지가 Facebook 게시 미리보기에 자동으로 들어갑니다.</p>
+        {% elif action.action_type == 'follow' %}
+          <p class="growth-help">공식 연동만으로는 ‘아직 팔로우하지 않은 계정 수’를 자동 집계할 수 없습니다. 허위 숫자를 표시하지 않고, 후보 유형별 검색으로 바로 이동합니다.</p>
+          <div class="growth-search-buttons"><a class="button primary" target="_blank" rel="noopener" href="{{ search_links.pages }}">페이지 후보 찾기</a><a class="button soft" target="_blank" rel="noopener" href="{{ search_links.people }}">사람·크리에이터 찾기</a><a class="button soft" target="_blank" rel="noopener" href="{{ search_links.groups }}">관련 그룹 찾기</a></div>
+        {% elif action.action_type == 'comment' or action.action_type == 'like' %}
+          <p class="growth-help">키워드와 관련된 게시물 검색으로 이동합니다. 검색 결과에서 실제 관련성을 확인한 뒤 좋아요나 댓글을 남기세요.</p>
+          <div class="growth-search-buttons"><a class="button primary" target="_blank" rel="noopener" href="{{ search_links.posts }}">관련 게시물 찾기</a><a class="button soft" target="_blank" rel="noopener" href="{{ search_links.groups }}">관련 그룹 게시물 찾기</a></div>
+        {% elif action.action_type == 'story' %}
+          <p class="growth-help">대표이미지가 있는 관련 콘텐츠를 골라 5초 세로형 MP4를 만드세요. 가벼운 배경음과 제목 애니메이션이 포함됩니다.</p>
+          {% if account %}<a class="button soft" target="_blank" rel="noopener" href="{{ search_links.profile }}">내 {{ account.platform.name }} 계정 열기</a>{% endif %}
+        {% endif %}
+      </div>
+    </article>
+  </section>
+
+  <section class="growth-section-card growth-related-section">
+    <div class="growth-section-head"><h2>관련 콘텐츠 추천</h2><p>키워드·제목·본문의 겹치는 주제를 기준으로 정렬했습니다.</p></div>
+    {% if contents %}<div class="growth-content-picks">
+      {% for item in contents %}
+      <article class="growth-content-pick">
+        <div class="growth-content-thumb">{% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="">{% else %}<span>이미지 없음</span>{% endif %}</div>
+        <div class="growth-content-copy"><h3>{{ item.title }}</h3><p>{{ item.body|striptags|truncatechars:170 }}</p><small>{{ item.created_at|date:"Y.m.d H:i" }}</small></div>
+        <div class="growth-content-actions">
+          {% if action.action_type == 'post' %}
+          <form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>
+          {% elif action.action_type == 'story' %}
+            {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 스토리 영상 만들기</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
+          {% else %}
+          <a class="button soft" href="{% url 'contents:content_update' item.pk %}">내 콘텐츠 확인</a>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>{% else %}<div class="growth-empty"><strong>관련 콘텐츠가 없습니다</strong><span>콘텐츠를 먼저 등록하거나 RSS에서 수집해 주세요.</span></div>{% endif %}
+  </section>
+
+  <div class="growth-finish-bar">
+    <form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button primary" type="submit">작업 완료 처리</button></form>
+    <form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">이번 작업 건너뛰기</button></form>
+  </div>
+</div>
+<script>document.querySelectorAll('.copy-comment').forEach(b=>b.addEventListener('click',async()=>{await navigator.clipboard.writeText(b.dataset.comment||'');b.textContent='복사됨';}));</script>
+{% endblock %}
