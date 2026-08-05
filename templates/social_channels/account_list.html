@@ -18,28 +18,17 @@
     </div>
     <h2>{{ account.profile_name }}</h2><p>{{ account.platform.name }}</p>
     <a class="profile-link" href="{{ account.profile_url }}" target="_blank" rel="noopener">{{ account.profile_url }}</a>
-
     <div class="connection-info">
-      {% if account.is_connected %}
-        <strong>공식 API 연결 완료</strong>
-        <span>{% if account.connected_at %}{{ account.connected_at|date:"Y.m.d H:i" }} 연결{% endif %}{% if account.token_expires_at %} · {{ account.token_expires_at|date:"Y.m.d" }} 만료{% endif %}</span>
-      {% elif account.last_connection_error %}
-        <strong>연결을 확인해 주세요</strong><span>{{ account.last_connection_error|truncatechars:90 }}</span>
-      {% else %}
-        <strong>공식 API 미연결</strong><span>URL 등록만으로는 자동 발행과 통계 수집을 사용할 수 없습니다.</span>
-      {% endif %}
+      {% if account.is_connected %}<strong>공식 API 연결 완료</strong><span>{% if account.connected_at %}{{ account.connected_at|date:"Y.m.d H:i" }} 연결{% endif %}</span>
+      {% elif account.last_connection_error %}<strong>연결을 확인해 주세요</strong><span>{{ account.last_connection_error|truncatechars:90 }}</span>
+      {% else %}<strong>공식 API 미연결</strong><span>URL 등록만으로는 자동 발행과 통계 수집을 사용할 수 없습니다.</span>{% endif %}
     </div>
-
     <div class="actions connection-actions">
       {% if account.platform.code == 'facebook' %}
-        {% if account.is_connected %}
-          <form method="post" action="{% url 'social_channels:facebook_disconnect' account.pk %}">{% csrf_token %}<button class="button soft" type="submit">연결 해제</button></form>
-        {% else %}
-          <a class="button facebook-button" href="{% url 'social_channels:facebook_connect' account.pk %}">Facebook 연결</a>
-        {% endif %}
-      {% else %}
-        <button class="button soft" type="button" disabled>연결 준비 중</button>
-      {% endif %}
+        {% if account.is_connected %}<form method="post" action="{% url 'social_channels:facebook_disconnect' account.pk %}">{% csrf_token %}<button class="button soft" type="submit">연결 해제</button></form>{% else %}<a class="button facebook-button" href="{% url 'social_channels:facebook_connect' account.pk %}">Facebook 연결</a>{% endif %}
+      {% elif account.platform.code == 'instagram' %}
+        {% if account.is_connected %}<form method="post" action="{% url 'social_channels:instagram_disconnect' account.pk %}">{% csrf_token %}<button class="button soft" type="submit">연결 해제</button></form>{% else %}<a class="button primary" href="{% url 'social_channels:instagram_connect' account.pk %}">Instagram 연결</a>{% endif %}
+      {% else %}<button class="button soft" type="button" disabled>연결 준비 중</button>{% endif %}
       <a class="button soft" href="{% url 'social_channels:account_update' account.pk %}">수정</a>
       <a class="button danger" href="{% url 'social_channels:account_delete' account.pk %}">삭제</a>
     </div>
