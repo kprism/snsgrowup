@@ -36,3 +36,26 @@ class GrowthAction(models.Model):
 
     def __str__(self):
         return f"{self.owner} · {self.get_action_type_display()} · {self.title}"
+
+
+class ChannelMetricSnapshot(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="channel_metric_snapshots")
+    social_account = models.ForeignKey("social_channels.SocialAccount", on_delete=models.CASCADE, related_name="metric_snapshots")
+    platform = models.CharField(max_length=30)
+    followers_count = models.PositiveBigIntegerField(null=True, blank=True)
+    reactions_count = models.PositiveBigIntegerField(null=True, blank=True)
+    comments_count = models.PositiveBigIntegerField(null=True, blank=True)
+    completed_actions_count = models.PositiveIntegerField(default=0)
+    collected_at = models.DateTimeField(auto_now_add=True)
+    collection_ok = models.BooleanField(default=True)
+    error_message = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-collected_at"]
+        indexes = [
+            models.Index(fields=["social_account", "-collected_at"]),
+            models.Index(fields=["owner", "platform", "-collected_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.social_account} · {self.collected_at:%Y-%m-%d %H:%M}"
