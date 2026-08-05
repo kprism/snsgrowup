@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}성장 액션 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>AI가 우선순위를 정한 작업을 직접 실행하고 완료 기록을 남깁니다.</p></div>
+</section>
+{% if messages %}{% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}{% endif %}
+<section class="publishing-summary">
+  <article><span>전체</span><strong>{{ totals.all }}</strong></article>
+  <article><span>진행 중</span><strong>{{ totals.started }}</strong></article>
+  <article><span>완료</span><strong>{{ totals.completed }}</strong></article>
+</section>
+<section class="panel compact-panel">
+  <div class="panel-head"><div><h2>추천 작업</h2><p>실행을 누르면 해당 SNS 화면이 열립니다. 좋아요·댓글·팔로우는 사용자가 직접 수행합니다.</p></div></div>
+  {% if actions %}<div class="content-table">
+  {% for action in actions %}
+    <article class="content-row">
+      <div class="content-main">
+        <div class="row-meta"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span>{{ action.get_action_type_display }}</span><span>우선순위 {{ action.priority_score }}점</span></div>
+        <h3>{{ action.title }}</h3>
+        <p>{{ action.recommendation_reason|default:"AI 추천 성장 작업" }}</p>
+        {% if action.suggested_comment %}<div class="notice"><strong>추천 댓글</strong><br>{{ action.suggested_comment }}</div>{% endif %}
+      </div>
+      <div class="row-actions">
+        {% if action.status != 'completed' %}
+        <form method="post" action="{% url 'growth:start_action' action.pk %}" target="_blank">{% csrf_token %}<button class="button primary" type="submit">실행</button></form>
+        <form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">완료 처리</button></form>
+        <form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">건너뛰기</button></form>
+        {% else %}<span class="status-chip status-success">완료됨</span>{% endif %}
+      </div>
+    </article>
+  {% endfor %}
+  </div>{% else %}<div class="empty-state compact-empty"><h2>추천 작업이 아직 없습니다</h2><p>다음 단계에서 키워드와 계정 데이터를 바탕으로 AI 추천 작업을 자동 생성합니다.</p></div>{% endif %}
+</section>
+{% endblock %}
