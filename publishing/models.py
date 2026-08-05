@@ -107,3 +107,34 @@ class AutomationSetting(models.Model):
 
     def __str__(self):
         return f"{self.owner} 자동발행 설정"
+
+
+class PublishQueue(models.Model):
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "예정"
+        PROCESSING = "processing", "게시 중"
+        COMPLETED = "completed", "완료"
+        RETRY = "retry", "재시도 예정"
+        FAILED = "failed", "실패"
+        CANCELLED = "cancelled", "취소"
+
+    task = models.OneToOneField(
+        PublishingTask,
+        on_delete=models.CASCADE,
+        related_name="publish_queue",
+    )
+    scheduled_at = models.DateTimeField(db_index=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    next_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    random_delay = models.PositiveIntegerField(default=0, help_text="초 단위")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SCHEDULED, db_index=True)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["scheduled_at", "id"]
+        indexes = [models.Index(fields=["status", "scheduled_at"])]
+
+    def __str__(self):
+        return f"Queue #{self.pk} · Task #{self.task_id} · {self.get_status_display()}"
