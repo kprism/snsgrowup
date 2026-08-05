@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}발행 작업 #{{ batch.pk }} | SNSGROWUP{% endblock %}
+{% block extra_css %}
+<style>
+.queue-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:10px 0 16px}.queue-summary-grid article{padding:12px;border:1px solid #eceef2;border-radius:12px;background:#fff}.queue-summary-grid span{display:block;font-size:12px;color:#6b7684}.queue-summary-grid strong{display:block;margin-top:4px;font-size:20px}.queue-cell{display:flex;flex-direction:column;gap:4px;min-width:150px}.queue-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.queue-badge{display:inline-flex;padding:4px 7px;border-radius:999px;border:1px solid #e6e9ee;font-size:11px;font-weight:700}.queue-badge.scheduled{background:#f4f8ff}.queue-badge.processing{background:#fff8e8}.queue-badge.retry{background:#fff3ed}.queue-badge.completed{background:#effaf3}.queue-badge.failed{background:#fff1f1}.queue-meta{font-size:11px;color:#687484}.queue-countdown{font-size:12px;font-weight:700;color:#334155}.queue-error{display:block;max-width:360px;color:#b42318;font-size:12px;white-space:normal}.task-table th,.task-table td{vertical-align:top}.task-table-wrap{overflow-x:auto}
+@media(max-width:900px){.queue-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+{% endblock %}
 {% block content %}
 <section class="page-head compact-head">
   <div><span class="eyebrow">PUBLISHING JOB</span><h1>발행 작업 #{{ batch.pk }}</h1><p>{{ batch.get_action_display }} · {{ batch.created_at|date:"Y.m.d H:i" }}</p></div>
@@ -25,24 +31,46 @@
   <article><span>실패</span><strong>{{ task_counts.failed }}</strong></article>
 </section>
 
+<section class="queue-summary-grid">
+  <article><span>게시 예정</span><strong>{{ queue_counts.scheduled|default:0 }}</strong></article>
+  <article><span>게시 중</span><strong>{{ queue_counts.processing|default:0 }}</strong></article>
+  <article><span>재시도 예정</span><strong>{{ queue_counts.retry|default:0 }}</strong></article>
+  <article><span>Queue 완료</span><strong>{{ queue_counts.completed|default:0 }}</strong></article>
+  <article><span>최종 실패</span><strong>{{ queue_counts.failed|default:0 }}</strong></article>
+</section>
+
 <section class="panel compact-panel">
-  <div class="panel-head"><div><h2>채널별 작업</h2><p>실제 게시 버튼을 누른 작업 한 건만 Facebook에 전송됩니다.</p></div></div>
+  <div class="panel-head"><div><h2>채널별 작업</h2><p>예약시간, 남은 시간, 재시도 횟수와 실패 원인을 확인합니다.</p></div></div>
   <div class="task-table-wrap">
     <table class="task-table">
-      <thead><tr><th>상태</th><th>콘텐츠</th><th>채널</th><th>시도</th><th>결과</th><th>작업</th></tr></thead>
+      <thead><tr><th>작업상태</th><th>Queue</th><th>콘텐츠</th><th>채널</th><th>시도</th><th>결과</th><th>작업</th></tr></thead>
       <tbody>
-      {% for task in batch.tasks.all %}
+      {% for task in batch.ui_tasks %}
         <tr>
           <td><span class="status-chip status-{{ task.status }}">{{ task.get_status_display }}</span></td>
+          <td>
+            {% if task.ui_queue %}
+            <div class="queue-cell">
+              <div class="queue-line"><span class="queue-badge {{ task.ui_queue.status }}">{{ task.ui_queue_label }}</span>{% if task.ui_queue.random_delay %}<span class="queue-meta">랜덤 +{{ task.ui_queue.random_delay }}초</span>{% endif %}</div>
+              {% if task.ui_eta_at %}<time class="queue-meta">{{ task.ui_eta_at|date:"Y.m.d H:i:s" }}</time>{% endif %}
+              {% if task.ui_eta_seconds != None %}<span class="queue-countdown" data-eta="{{ task.ui_eta_at|date:'c' }}">계산 중</span>{% endif %}
+              <span class="queue-meta">재시도 {{ task.ui_queue.retry_count }}회</span>
+              {% if task.ui_queue.next_retry_at %}<span class="queue-meta">다음 재시도 {{ task.ui_queue.next_retry_at|date:"m.d H:i:s" }}</span>{% endif %}
+              {% if task.ui_queue.last_error %}<span class="queue-error">{{ task.ui_queue.last_error }}</span>{% endif %}
+            </div>
+            {% else %}<span class="muted-text">Queue 없음</span>{% endif %}
+          </td>
           <td><strong>{{ task.content.title|truncatechars:55 }}</strong></td>
           <td><span class="task-channel">{{ task.channel.platform.name }} · {{ task.channel.profile_name }}</span></td>
           <td>{{ task.attempt_count }}회</td>
           <td>{% if task.error_message %}<span class="task-error">{{ task.error_message }}</span>{% elif task.external_post_url %}<a href="{{ task.external_post_url }}" target="_blank" rel="noopener">게시물 열기</a>{% else %}<span class="muted-text">대기 중</span>{% endif %}</td>
           <td>
-            {% if task.status == 'pending' and task.channel.platform.code == 'facebook' %}
+            {% if task.status == 'pending' and task.channel.platform.code == 'facebook' and not task.ui_queue %}
               <form method="post" action="{% url 'publishing:task_execute' task.pk %}" onsubmit="return confirm('이 콘텐츠를 Facebook 페이지에 실제 게시합니다. 계속할까요?');">{% csrf_token %}<button class="button primary button-small" type="submit">게시 실행</button></form>
             {% elif task.status == 'failed' or task.status == 'connection_required' %}
               <form method="post" action="{% url 'publishing:task_retry' task.pk %}">{% csrf_token %}<button class="button soft button-small" type="submit">재시도</button></form>
+            {% elif task.ui_queue.status == 'scheduled' or task.ui_queue.status == 'retry' %}
+              <span class="muted-text">자동 대기</span>
             {% elif task.status == 'processing' %}
               <span class="muted-text">처리 중</span>
             {% else %}
@@ -51,10 +79,28 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="6" class="table-empty">생성된 작업이 없습니다.</td></tr>
+        <tr><td colspan="7" class="table-empty">생성된 작업이 없습니다.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function(){
+  function label(ms){
+    if(ms<=0) return '곧 실행';
+    var s=Math.floor(ms/1000),d=Math.floor(s/86400);s%=86400;
+    var h=Math.floor(s/3600);s%=3600;
+    var m=Math.floor(s/60);s%=60;
+    if(d) return d+'일 '+h+'시간 후';
+    if(h) return h+'시간 '+m+'분 후';
+    if(m) return m+'분 '+s+'초 후';
+    return s+'초 후';
+  }
+  function tick(){document.querySelectorAll('[data-eta]').forEach(function(el){el.textContent=label(new Date(el.dataset.eta).getTime()-Date.now());});}
+  tick();setInterval(tick,1000);
+})();
+</script>
 {% endblock %}
