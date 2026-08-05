@@ -22,15 +22,19 @@ ALLOWED_HOSTS = env.list(
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 
-CSRF_TRUSTED_ORIGINS = env.list(
-    "CSRF_TRUSTED_ORIGINS",
-    default=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "https://*.app.github.dev",
-        "https://*.githubpreview.dev",
-    ],
-)
+# GitHub Codespaces 프록시는 브라우저의 공개 app.github.dev 주소를 사용하면서도
+# 일부 요청의 Origin을 https://localhost:8000으로 전달할 수 있다. .env에
+# CSRF_TRUSTED_ORIGINS가 별도로 정의돼 있어도 필수 개발 Origin을 항상 합친다.
+_configured_csrf_origins = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+_required_csrf_origins = [
+    "http://localhost:8000",
+    "https://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://127.0.0.1:8000",
+    "https://*.app.github.dev",
+    "https://*.githubpreview.dev",
+]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(_configured_csrf_origins + _required_csrf_origins))
 
 INSTALLED_APPS = [
     "django.contrib.admin",
