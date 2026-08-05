@@ -2,24 +2,34 @@
 {% block title %}성장 액션 | SNSGROWUP{% endblock %}
 {% block content %}
 <section class="page-head compact-head">
-  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>AI가 우선순위를 정한 작업을 직접 실행하고 완료 기록을 남깁니다.</p></div>
+  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>키워드를 입력하면 안전한 사용자 실행형 Instagram 성장 미션을 우선순위대로 만듭니다.</p></div>
 </section>
-{% if messages %}{% for message in messages %}<div class="notice">{{ message }}</div>{% endfor %}{% endif %}
+{% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
+
+<section class="panel compact-panel" style="margin-bottom:16px;">
+  <div class="panel-head"><div><h2>AI 성장 미션 만들기</h2><p>지역, 업종, 관심 주제를 입력하세요. 기존의 미완료 추천 작업은 새 미션으로 교체됩니다.</p></div></div>
+  <form method="post" style="display:flex;gap:10px;align-items:end;padding:18px;flex-wrap:wrap;">{% csrf_token %}
+    <input type="hidden" name="command" value="generate">
+    <label style="display:grid;gap:7px;min-width:280px;flex:1;"><strong>성장 키워드</strong><input type="text" name="keyword" maxlength="120" value="{{ active_keyword }}" placeholder="예: 창원 맛집, 경남 뉴스, 교육 AI" required></label>
+    <button class="button primary" type="submit">오늘 미션 생성</button>
+  </form>
+</section>
+
 <section class="publishing-summary">
   <article><span>전체</span><strong>{{ totals.all }}</strong></article>
   <article><span>진행 중</span><strong>{{ totals.started }}</strong></article>
   <article><span>완료</span><strong>{{ totals.completed }}</strong></article>
 </section>
 <section class="panel compact-panel">
-  <div class="panel-head"><div><h2>추천 작업</h2><p>실행을 누르면 해당 SNS 화면이 열립니다. 좋아요·댓글·팔로우는 사용자가 직접 수행합니다.</p></div></div>
+  <div class="panel-head"><div><h2>추천 작업</h2><p>실행을 누르면 Instagram 키워드 화면이 열립니다. 좋아요·댓글·팔로우는 사용자가 직접 판단하고 수행합니다.</p></div></div>
   {% if actions %}<div class="content-table">
   {% for action in actions %}
     <article class="content-row">
       <div class="content-main">
-        <div class="row-meta"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span>{{ action.get_action_type_display }}</span><span>우선순위 {{ action.priority_score }}점</span></div>
+        <div class="row-meta"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span>{{ action.get_action_type_display }}</span><span>우선순위 {{ action.priority_score }}점</span>{% if action.keyword %}<span>#{{ action.keyword }}</span>{% endif %}</div>
         <h3>{{ action.title }}</h3>
         <p>{{ action.recommendation_reason|default:"AI 추천 성장 작업" }}</p>
-        {% if action.suggested_comment %}<div class="notice"><strong>추천 댓글</strong><br>{{ action.suggested_comment }}</div>{% endif %}
+        {% if action.suggested_comment %}<div class="notice"><strong>댓글 작성 가이드</strong><br>{{ action.suggested_comment }}</div>{% endif %}
       </div>
       <div class="row-actions">
         {% if action.status != 'completed' %}
@@ -30,6 +40,6 @@
       </div>
     </article>
   {% endfor %}
-  </div>{% else %}<div class="empty-state compact-empty"><h2>추천 작업이 아직 없습니다</h2><p>다음 단계에서 키워드와 계정 데이터를 바탕으로 AI 추천 작업을 자동 생성합니다.</p></div>{% endif %}
+  </div>{% else %}<div class="empty-state compact-empty"><h2>성장 키워드를 입력해 주세요</h2><p>키워드를 입력하면 게시, 댓글, 좋아요, 스토리, 팔로우 검토 미션을 우선순위대로 생성합니다.</p></div>{% endif %}
 </section>
 {% endblock %}
