@@ -17,6 +17,8 @@ class GrowthAction(models.Model):
         SKIPPED = "skipped", "건너뜀"
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="growth_actions")
+    platform = models.CharField(max_length=30, default="instagram")
+    keyword = models.CharField(max_length=120, blank=True)
     action_type = models.CharField(max_length=20, choices=ActionType.choices)
     title = models.CharField(max_length=200)
     target_url = models.URLField()
