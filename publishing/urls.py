@@ -6,6 +6,7 @@ app_name = "publishing"
 
 urlpatterns = [
     path("", views.batch_list, name="batch_list"),
+    path("settings/automation/", views.automation_settings, name="automation_settings"),
     path("<int:pk>/", views.batch_detail, name="batch_detail"),
     path("<int:pk>/result/", views.publish_result, name="publish_result"),
     path("<int:pk>/status/", views.publish_status, name="publish_status"),
