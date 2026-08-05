@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import instagram_views, views
 
 app_name = "social_channels"
 
@@ -13,4 +13,8 @@ urlpatterns = [
     path("facebook/callback/", views.facebook_callback, name="facebook_callback"),
     path("<int:pk>/facebook/pages/", views.facebook_page_select, name="facebook_page_select"),
     path("<int:pk>/facebook/disconnect/", views.facebook_disconnect, name="facebook_disconnect"),
+    path("<int:pk>/instagram/connect/", instagram_views.instagram_connect, name="instagram_connect"),
+    path("instagram/callback/", instagram_views.instagram_callback, name="instagram_callback"),
+    path("<int:pk>/instagram/accounts/", instagram_views.instagram_account_select, name="instagram_account_select"),
+    path("<int:pk>/instagram/disconnect/", instagram_views.instagram_disconnect, name="instagram_disconnect"),
 ]
