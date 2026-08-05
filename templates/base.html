@@ -28,7 +28,7 @@
         <a class="nav-item" href="{% url 'publishing:batch_list' %}"><span class="icon-3d nav-icon-3d icon-3d-send"><i></i></span><b>발행 관리</b></a>
         <a class="nav-item" href="{% url 'publishing:automation_settings' %}"><span class="icon-3d nav-icon-3d icon-3d-chart"><i></i></span><b>자동발행 설정</b></a>
         <p class="nav-section">성장과 분석</p>
-        <a class="nav-item muted" href="#"><span class="icon-3d nav-icon-3d icon-3d-growth"><i></i></span><b>성장 액션</b><small>준비 중</small></a>
+        <a class="nav-item" href="{% url 'growth:action_center' %}"><span class="icon-3d nav-icon-3d icon-3d-growth"><i></i></span><b>성장 액션</b></a>
         <a class="nav-item muted" href="#"><span class="icon-3d nav-icon-3d icon-3d-chart"><i></i></span><b>통계 분석</b><small>준비 중</small></a>
         {% if user.account_type == 'press' %}<a class="nav-item" href="{% url 'press_accounts:rss_dashboard' %}"><span class="icon-3d nav-icon-3d icon-3d-rss"><i></i></span><b>RSS 관리</b></a>{% endif %}
       </nav>
