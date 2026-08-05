@@ -10,6 +10,7 @@ urlpatterns = [
     path("channels/", include("social_channels.urls")),
     path("contents/", include("contents.urls")),
     path("publishing/", include("publishing.urls")),
+    path("growth/", include("growth.urls")),
     path(
         "settings/automation/",
         RedirectView.as_view(url=reverse_lazy("publishing:automation_settings"), permanent=False),
