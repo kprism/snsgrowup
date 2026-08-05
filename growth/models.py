@@ -53,8 +53,8 @@ class ChannelMetricSnapshot(models.Model):
     class Meta:
         ordering = ["-collected_at"]
         indexes = [
-            models.Index(fields=["social_account", "-collected_at"]),
-            models.Index(fields=["owner", "platform", "-collected_at"]),
+            models.Index(fields=["social_account", "-collected_at"], name="growth_chan_social__73ac87_idx"),
+            models.Index(fields=["owner", "platform", "-collected_at"], name="growth_chan_owner_i_1b219b_idx"),
         ]
 
     def __str__(self):
