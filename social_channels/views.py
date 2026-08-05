@@ -29,7 +29,16 @@ def account_create(request):
             account = form.save(commit=False)
             account.user = request.user
             account.save()
-            messages.success(request, "SNS 계정이 등록되었습니다.")
+
+            platform_code = account.platform.code
+            if platform_code == "instagram":
+                messages.success(request, "Instagram 계정이 등록되었습니다. 이제 공식 API 연결을 진행합니다.")
+                return redirect("social_channels:instagram_connect", pk=account.pk)
+            if platform_code == "facebook":
+                messages.success(request, "Facebook 계정이 등록되었습니다. 이제 공식 API 연결을 진행합니다.")
+                return redirect("social_channels:facebook_connect", pk=account.pk)
+
+            messages.success(request, "SNS 계정이 등록되었습니다. 채널 목록에서 다음 연결 단계를 진행해 주세요.")
             return redirect("social_channels:account_list")
     else:
         form = SocialAccountForm()
