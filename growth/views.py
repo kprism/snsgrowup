@@ -273,39 +273,59 @@ def generate_story_video(request, pk, content_pk):
         messages.error(request, "스토리 영상 제작에는 대표이미지가 필요합니다.")
         return redirect("growth:prepare_action", pk=action.pk)
 
+    image_path = Path(content.representative_image.path)
+    if not image_path.exists():
+        messages.error(request, "대표이미지 원본 파일을 찾을 수 없습니다.")
+        return redirect("growth:prepare_action", pk=action.pk)
+
     output_dir = Path(settings.MEDIA_ROOT) / "growth_story_exports" / str(request.user.pk)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"story_{content.pk}_{uuid.uuid4().hex[:8]}.mp4"
 
-    # 한 장의 사진을 두 깊이 레이어로 분리해 서로 다른 속도로 이동시키고,
-    # 전경 카드와 빛 번짐을 추가해 단순 확대보다 역동적인 2.5D 움직임을 만든다.
+    # 안정성을 우선한 2.5D 구성이다. 배경은 천천히 이동하고 전경 카드는 반대 방향으로
+    # 움직여 단순 확대보다 입체적으로 보이게 하되, FFmpeg 빌드별 호환성이 낮은 필터는 제외한다.
     filter_complex = (
-        "[0:v]split=2[bgsrc][fgsrc];"
-        "[bgsrc]scale=1320:2347:force_original_aspect_ratio=increase,crop=1320:2347,"
-        "gblur=sigma=18,zoompan=z='1.05+0.015*sin(on/18)':x='70+35*sin(on/22)':y='130+45*cos(on/26)':d=125:s=1080x1920[bg];"
-        "[fgsrc]scale=980:1420:force_original_aspect_ratio=decrease,"
-        "pad=980:1420:(ow-iw)/2:(oh-ih)/2:color=black@0,"
-        "zoompan=z='1.0+0.025*sin(on/20)':x='iw/2-(iw/zoom/2)+18*sin(on/16)':y='ih/2-(ih/zoom/2)+22*cos(on/19)':d=125:s=980x1420[fg];"
-        "[bg][fg]overlay=x='50+18*sin(t*1.8)':y='220+22*cos(t*1.5)':format=auto[tmp];"
-        "color=c=white@0.10:s=240x2200:d=5,format=rgba[sheen];"
-        "[tmp][sheen]overlay=x='-260+t*330':y=-120,fade=t=in:st=0:d=.35:alpha=1,fade=t=out:st=4.3:d=.7:alpha=1[v];"
-        "[1:a][2:a]amix=inputs=2:duration=shortest,volume=0.07[a]"
+        "[0:v]fps=25,split=2[bgsrc][fgsrc];"
+        "[bgsrc]scale=1280:2276:force_original_aspect_ratio=increase,"
+        "crop=1080:1920:x='100+35*sin(t*0.9)':y='178+45*cos(t*0.7)',"
+        "gblur=sigma=14[bg];"
+        "[fgsrc]scale=920:1380:force_original_aspect_ratio=decrease,"
+        "pad=920:1380:(ow-iw)/2:(oh-ih)/2:color=black[fg];"
+        "[bg][fg]overlay=x='80+20*sin(t*1.1)':y='270+24*cos(t*0.9)':shortest=1,"
+        "fade=t=in:st=0:d=0.25,fade=t=out:st=4.45:d=0.55,format=yuv420p[v];"
+        "[1:a]volume=0.055,afade=t=in:st=0:d=0.25,afade=t=out:st=4.35:d=0.65[a]"
     )
     command = [
-        "ffmpeg", "-y", "-loop", "1", "-i", content.representative_image.path,
-        "-f", "lavfi", "-i", "sine=frequency=220:duration=5",
-        "-f", "lavfi", "-i", "sine=frequency=330:duration=5",
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-loop", "1", "-framerate", "25", "-i", str(image_path),
+        "-f", "lavfi", "-i", "sine=frequency=260:sample_rate=44100:duration=5",
         "-filter_complex", filter_complex,
         "-map", "[v]", "-map", "[a]", "-t", "5", "-r", "25",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
-        "-shortest", str(output_path),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k",
+        "-movflags", "+faststart", "-shortest", str(output_path),
     ]
     try:
-        subprocess.run(command, check=True, capture_output=True, timeout=60)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        messages.error(request, f"스토리 영상 생성에 실패했습니다: {str(exc)[:120]}")
+        result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=75)
+    except subprocess.TimeoutExpired:
+        messages.error(request, "스토리 영상 생성 시간이 초과되었습니다. 다른 이미지를 선택해 다시 시도해 주세요.")
         return redirect("growth:prepare_action", pk=action.pk)
-    return FileResponse(open(output_path, "rb"), as_attachment=True, filename=f"SNSGROWUP_story_{content.pk}.mp4", content_type="video/mp4")
+    except subprocess.CalledProcessError as exc:
+        error_detail = (exc.stderr or exc.stdout or "FFmpeg 처리 오류").strip().splitlines()
+        error_message = error_detail[-1] if error_detail else "FFmpeg 처리 오류"
+        messages.error(request, f"스토리 영상 생성에 실패했습니다: {error_message[:220]}")
+        return redirect("growth:prepare_action", pk=action.pk)
+
+    if not output_path.exists() or output_path.stat().st_size < 1024:
+        messages.error(request, "스토리 영상 파일이 정상적으로 생성되지 않았습니다.")
+        return redirect("growth:prepare_action", pk=action.pk)
+
+    return FileResponse(
+        open(output_path, "rb"),
+        as_attachment=True,
+        filename=f"SNSGROWUP_story_{content.pk}.mp4",
+        content_type="video/mp4",
+    )
 
 
 @login_required
