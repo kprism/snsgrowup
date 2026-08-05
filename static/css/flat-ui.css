@@ -3,6 +3,11 @@
 body,.topbar,.sidebar,.main-content,.panel,.service-card,.form-card,.summary-card,.publishing-card,.sticky-action-bar,.facebook-mockup,.rss-progress,.action-toolbar,.button,.channel-pick,.content-row,.job-table-wrap{box-shadow:none!important;text-shadow:none!important;filter:none!important;background-image:none!important}
 body::before,body::after,.topbar::before,.topbar::after,.sidebar::before,.sidebar::after,.panel::before,.panel::after,.button::before,.button::after{box-shadow:none!important;text-shadow:none!important;filter:none!important;background-image:none!important}
 .brand-mark,.brand-icon{background-image:none!important;box-shadow:none!important;filter:none!important}
+.brand-icon.brand-facebook{background-color:#1877f2!important;color:#fff!important}
+.brand-icon.brand-instagram{background-color:#e1306c!important;color:#fff!important}
+.brand-icon.brand-instagram svg{fill:none!important;stroke:#fff!important;stroke-width:2!important;stroke-linecap:round;stroke-linejoin:round}
+.brand-icon.brand-youtube{background-color:#ff0000!important;color:#fff!important}
+.brand-icon.brand-threads{background-color:#000!important;color:#fff!important}
 .nav-item:hover,.button:hover,.publishing-card:hover{transform:none!important}
 .panel,.service-card,.form-card,.summary-card,.publishing-card,.action-toolbar,.sticky-action-bar{border:1px solid #e1e6ef!important}
 .rss-progress{border-top:1px solid #e1e6ef;background:#fff!important;padding:12px 18px}
