@@ -35,7 +35,8 @@
         {% for value,label in action_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
       </select>
     </div>
-    <button class="button primary execute-button" id="workspace-submit" type="submit">실행</button>
+    <button class="button primary execute-button" id="quick-publish" type="submit" name="command" value="quick_publish">AI 바로 게시</button>
+    <button class="button soft execute-button" id="workspace-submit" type="submit">미리보기</button>
   </section>
 
   <section class="panel compact-panel">
@@ -72,6 +73,7 @@
   const form = document.getElementById('content-workspace-form');
   const action = document.getElementById('action');
   const submit = document.getElementById('workspace-submit');
+  const quickPublish = document.getElementById('quick-publish');
   const channelGroup = document.getElementById('channelGroup');
   const channelInputs = Array.from(document.querySelectorAll('input[name="channel_ids"]'));
   const itemInputs = Array.from(document.querySelectorAll('.content-item-check'));
@@ -86,12 +88,15 @@
 
   function refreshActionState() {
     const deleting = action.value === 'delete';
-    const hasFacebook = channelInputs.some(input => input.checked && input.dataset.platform === 'facebook');
+    const upload = action.value === 'upload';
+    const checkedChannels = channelInputs.filter(input => input.checked);
+    const facebookOnly = checkedChannels.length > 0 && checkedChannels.every(input => input.dataset.platform === 'facebook');
     channelInputs.forEach(input => { input.disabled = deleting; });
     channelGroup.classList.toggle('is-disabled', deleting);
     submit.classList.toggle('danger', deleting);
-    submit.classList.toggle('primary', !deleting);
-    submit.textContent = deleting ? '삭제 실행' : (action.value === 'upload' && hasFacebook ? '미리보기' : '실행');
+    submit.classList.toggle('soft', !deleting);
+    submit.textContent = deleting ? '삭제 실행' : (upload ? '미리보기' : '실행');
+    quickPublish.hidden = deleting || !upload || !facebookOnly;
   }
 
   if (selectAll) {
@@ -105,10 +110,15 @@
   channelInputs.forEach(input => input.addEventListener('change', refreshActionState));
 
   form.addEventListener('submit', event => {
-    if (action.value !== 'delete') return;
     const selectedCount = itemInputs.filter(input => input.checked).length;
     if (!selectedCount) return;
-    if (!window.confirm(`선택한 콘텐츠 ${selectedCount}건을 삭제합니다. 연결된 작업 기록에도 영향을 줄 수 있으며 복구할 수 없습니다. 계속할까요?`)) {
+    if (event.submitter === quickPublish) {
+      if (!window.confirm(`선택한 콘텐츠 ${selectedCount}건을 AI가 게시문과 태그를 만든 뒤 랜덤 간격으로 자동 게시합니다. 계속할까요?`)) {
+        event.preventDefault();
+      }
+      return;
+    }
+    if (action.value === 'delete' && !window.confirm(`선택한 콘텐츠 ${selectedCount}건을 삭제합니다. 연결된 작업 기록에도 영향을 줄 수 있으며 복구할 수 없습니다. 계속할까요?`)) {
       event.preventDefault();
     }
   });
