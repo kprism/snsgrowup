@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block title %}SNS 작업센터 | SNSGROWUP{% endblock %}
+{% block extra_css %}
+<style>
+.queue-overview{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.queue-pill{display:inline-flex;align-items:center;gap:4px;padding:4px 7px;border:1px solid #e7e9ee;border-radius:999px;background:#fff;font-size:11px;line-height:1.2}.queue-pill strong{font-size:11px}.queue-next{display:flex;flex-direction:column;gap:3px}.queue-next time{font-weight:700;font-size:12px}.queue-countdown{font-size:11px;color:#526071}.queue-none{font-size:11px;color:#8b95a1}.queue-pill.scheduled{background:#f4f8ff}.queue-pill.processing{background:#fff8e8}.queue-pill.retry{background:#fff3ed}.queue-pill.failed{background:#fff1f1}.queue-pill.completed{background:#effaf3}
+</style>
+{% endblock %}
 {% block content %}
 <section class="page-head compact-head">
-  <div><span class="eyebrow">PUBLISHING CENTER</span><h1>SNS 작업센터</h1><p>작업일시, 상태, 타겟채널과 콘텐츠를 목록으로 관리합니다.</p></div>
+  <div><span class="eyebrow">PUBLISHING CENTER</span><h1>SNS 작업센터</h1><p>작업일시, Queue 상태, 타겟채널과 콘텐츠를 한 화면에서 관리합니다.</p></div>
   <a class="button primary" href="{% url 'contents:content_list' %}">새 작업 만들기</a>
 </section>
 
@@ -27,13 +32,28 @@
   {% if batches %}
   <div class="job-table-wrap">
     <table class="job-table">
-      <thead><tr><th>작업번호</th><th>작업일시</th><th>작업상태</th><th>타겟채널</th><th>콘텐츠</th><th>진행률</th><th></th></tr></thead>
+      <thead><tr><th>작업번호</th><th>작업일시</th><th>작업상태</th><th>Queue</th><th>다음 실행</th><th>타겟채널</th><th>콘텐츠</th><th>진행률</th><th></th></tr></thead>
       <tbody>
       {% for batch in batches %}
       <tr>
         <td><strong>#{{ batch.pk }}</strong><small>{{ batch.get_action_display }}</small></td>
         <td>{{ batch.created_at|date:"Y.m.d H:i" }}</td>
         <td><span class="status-chip status-{{ batch.status }}">{{ batch.get_status_display }}</span></td>
+        <td>
+          <div class="queue-overview">
+            {% if batch.ui_queue_counts.scheduled %}<span class="queue-pill scheduled">예정 <strong>{{ batch.ui_queue_counts.scheduled }}</strong></span>{% endif %}
+            {% if batch.ui_queue_counts.processing %}<span class="queue-pill processing">게시중 <strong>{{ batch.ui_queue_counts.processing }}</strong></span>{% endif %}
+            {% if batch.ui_queue_counts.retry %}<span class="queue-pill retry">재시도 <strong>{{ batch.ui_queue_counts.retry }}</strong></span>{% endif %}
+            {% if batch.ui_queue_counts.completed %}<span class="queue-pill completed">완료 <strong>{{ batch.ui_queue_counts.completed }}</strong></span>{% endif %}
+            {% if batch.ui_queue_counts.failed %}<span class="queue-pill failed">실패 <strong>{{ batch.ui_queue_counts.failed }}</strong></span>{% endif %}
+            {% if not batch.ui_queue_counts.scheduled and not batch.ui_queue_counts.processing and not batch.ui_queue_counts.retry and not batch.ui_queue_counts.completed and not batch.ui_queue_counts.failed %}<span class="queue-none">Queue 없음</span>{% endif %}
+          </div>
+        </td>
+        <td>
+          {% if batch.ui_next_eta %}
+          <div class="queue-next"><time>{{ batch.ui_next_eta|date:"m.d H:i:s" }}</time><span class="queue-countdown" data-eta="{{ batch.ui_next_eta|date:'c' }}">계산 중</span></div>
+          {% else %}<span class="queue-none">예정 없음</span>{% endif %}
+        </td>
         <td><div class="target-channel-icons">{% for channel in batch.channels.all %}<span class="brand-icon brand-{{ channel.platform.code }}" title="{{ channel.platform.name }} · {{ channel.profile_name }}">{% if channel.platform.code == 'facebook' %}<svg viewBox="0 0 24 24"><path d="M14 8h3V4h-3c-3 0-5 2-5 5v2H6v4h3v7h4v-7h3l1-4h-4V9c0-.7.3-1 1-1z"/></svg>{% elif channel.platform.code == 'instagram' %}<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>{% elif channel.platform.code == 'youtube' %}<svg viewBox="0 0 24 24"><path d="M21 7.5a3 3 0 0 0-2.1-2.1C17 5 12 5 12 5s-5 0-6.9.4A3 3 0 0 0 3 7.5C2.6 9.4 2.6 12 2.6 12s0 2.6.4 4.5a3 3 0 0 0 2.1 2.1C7 19 12 19 12 19s5 0 6.9-.4a3 3 0 0 0 2.1-2.1c.4-1.9.4-4.5.4-4.5s0-2.6-.4-4.5z"/><path class="play" d="m10 9 5 3-5 3z"/></svg>{% elif channel.platform.code == 'threads' %}<svg viewBox="0 0 24 24"><path d="M12 3c5 0 8 3 8 8 0 6-3 10-8 10-5 0-8-3-8-9 0-5 3-9 8-9z"/></svg>{% else %}{{ channel.platform.name|slice:":1" }}{% endif %}</span>{% empty %}<span class="muted-text">없음</span>{% endfor %}</div></td>
         <td><div class="job-content-titles">{% for title in batch.ui_content_titles %}<span>{{ title }}</span>{% endfor %}{% if batch.contents.count > 2 %}<small>외 {{ batch.contents.count|add:"-2" }}건</small>{% endif %}</div></td>
         <td><div class="job-progress"><span>{{ batch.ui_progress }}%</span><div><i style="width:{{ batch.ui_progress }}%"></i></div></div></td>
@@ -47,4 +67,22 @@
   <div class="empty-state compact-empty"><h2>검색된 작업이 없습니다</h2><p>조건을 바꾸거나 새 작업을 만들어 보세요.</p><a class="button primary" href="{% url 'contents:content_list' %}">작업 만들기</a></div>
   {% endif %}
 </section>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function(){
+  function label(ms){
+    if(ms <= 0) return '곧 실행';
+    var seconds=Math.floor(ms/1000), days=Math.floor(seconds/86400); seconds%=86400;
+    var hours=Math.floor(seconds/3600); seconds%=3600;
+    var minutes=Math.floor(seconds/60); seconds%=60;
+    if(days) return days+'일 '+hours+'시간 후';
+    if(hours) return hours+'시간 '+minutes+'분 후';
+    if(minutes) return minutes+'분 '+seconds+'초 후';
+    return seconds+'초 후';
+  }
+  function tick(){document.querySelectorAll('[data-eta]').forEach(function(el){el.textContent=label(new Date(el.dataset.eta).getTime()-Date.now());});}
+  tick(); setInterval(tick,1000);
+})();
+</script>
 {% endblock %}
