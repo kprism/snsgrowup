@@ -1,15 +1,23 @@
 from datetime import timedelta
+from pathlib import Path
 from urllib.parse import quote
+import re
+import subprocess
+import uuid
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count
 from django.db.models.functions import TruncDate
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from contents.models import ContentItem
+from contents.views import PREVIEW_SESSION_KEY
+from publishing.models import PublishingBatch
 from social_channels.models import SocialAccount
 
 from .ai_service import generate_growth_plan
@@ -20,11 +28,12 @@ ACTION_TYPES = {value for value, _label in GrowthAction.ActionType.choices}
 SUPPORTED_GROWTH_PLATFORMS = {"facebook", "instagram", "threads", "youtube"}
 
 
-def _platform_search_url(platform: str, keyword: str, profile_url: str = "") -> str:
+def _platform_search_url(platform: str, keyword: str, profile_url: str = "", section: str = "top") -> str:
     query = quote(keyword.strip())
     compact = quote("".join(keyword.split()))
     if platform == "facebook":
-        return f"https://www.facebook.com/search/top?q={query}"
+        section_path = {"posts": "posts", "pages": "pages", "groups": "groups", "people": "people"}.get(section, "top")
+        return f"https://www.facebook.com/search/{section_path}?q={query}"
     if platform == "instagram":
         return f"https://www.instagram.com/explore/tags/{compact}/"
     if platform == "threads":
@@ -36,21 +45,43 @@ def _platform_search_url(platform: str, keyword: str, profile_url: str = "") -> 
 
 def _registered_accounts(user):
     return list(
-        SocialAccount.objects.filter(
-            user=user,
-            is_active=True,
-            platform__code__in=SUPPORTED_GROWTH_PLATFORMS,
-        )
+        SocialAccount.objects.filter(user=user, is_active=True, platform__code__in=SUPPORTED_GROWTH_PLATFORMS)
         .select_related("platform")
         .order_by("platform__name", "profile_name")
     )
 
 
 def _content_samples(user):
-    return list(
-        ContentItem.objects.filter(owner=user)
-        .order_by("-created_at")
-        .values("title", "body")[:15]
+    return list(ContentItem.objects.filter(owner=user).order_by("-created_at").values("title", "body")[:15])
+
+
+def _keyword_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[0-9A-Za-z가-힣]{2,}", value or "")
+        if token not in {"관련", "지역", "오늘", "정보", "게시물", "미션", "수동", "계정"}
+    }
+
+
+def _relevant_contents(user, action: GrowthAction, limit: int = 8):
+    action_tokens = _keyword_tokens(" ".join([action.keyword, action.title, action.recommendation_reason]))
+    ranked = []
+    for item in ContentItem.objects.filter(owner=user).order_by("-created_at")[:80]:
+        item_tokens = _keyword_tokens(f"{item.title} {item.body[:1200]}")
+        score = len(action_tokens & item_tokens)
+        if action.keyword and action.keyword.replace(" ", "") in f"{item.title}{item.body}".replace(" ", ""):
+            score += 4
+        ranked.append((score, item.created_at, item))
+    ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    positive = [item for score, _created, item in ranked if score > 0]
+    return (positive or [item for _score, _created, item in ranked])[:limit]
+
+
+def _account_for_action(user, action: GrowthAction):
+    return (
+        SocialAccount.objects.filter(user=user, is_active=True, platform__code=action.platform)
+        .select_related("platform")
+        .first()
     )
 
 
@@ -58,102 +89,72 @@ def _daily_growth_chart(user, platform: str):
     today = timezone.localdate()
     start = today - timedelta(days=6)
     rows = (
-        GrowthAction.objects.filter(
-            owner=user,
-            platform=platform,
-            status=GrowthAction.Status.COMPLETED,
-            completed_at__date__gte=start,
-        )
+        GrowthAction.objects.filter(owner=user, platform=platform, status=GrowthAction.Status.COMPLETED, completed_at__date__gte=start)
         .annotate(day=TruncDate("completed_at"))
         .values("day")
         .annotate(total=Count("id"))
     )
     counts = {row["day"]: row["total"] for row in rows}
     maximum = max(counts.values(), default=1)
-    chart = []
-    for offset in range(7):
-        day = start + timedelta(days=offset)
-        total = counts.get(day, 0)
-        chart.append(
-            {
-                "date": day,
-                "label": day.strftime("%m.%d"),
-                "total": total,
-                "height": max(8, round((total / maximum) * 100)) if total else 8,
-                "is_today": day == today,
-            }
-        )
-    return chart
+    return [
+        {
+            "date": start + timedelta(days=offset),
+            "label": (start + timedelta(days=offset)).strftime("%m.%d"),
+            "total": counts.get(start + timedelta(days=offset), 0),
+            "height": max(8, round((counts.get(start + timedelta(days=offset), 0) / maximum) * 100)) if counts.get(start + timedelta(days=offset), 0) else 8,
+            "is_today": start + timedelta(days=offset) == today,
+        }
+        for offset in range(7)
+    ]
 
 
 def _channel_cards(user, accounts):
     today = timezone.localdate()
     cards = []
     for account in accounts:
-        platform = account.platform.code
-        base = GrowthAction.objects.filter(owner=user, platform=platform)
-        cards.append(
-            {
-                "account": account,
-                "platform": platform,
-                "ready": base.filter(status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED]).count(),
-                "completed_today": base.filter(
-                    status=GrowthAction.Status.COMPLETED,
-                    completed_at__date=today,
-                ).count(),
-            }
-        )
+        base = GrowthAction.objects.filter(owner=user, platform=account.platform.code)
+        cards.append({
+            "account": account,
+            "platform": account.platform.code,
+            "ready": base.filter(status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED]).count(),
+            "completed_today": base.filter(status=GrowthAction.Status.COMPLETED, completed_at__date=today).count(),
+        })
     return cards
 
 
 @login_required
 def action_center(request):
     accounts = _registered_accounts(request.user)
-    selected_account = None
     selected_id = request.GET.get("account") or request.session.get("growth_selected_account_id")
-    if selected_id:
-        selected_account = next((item for item in accounts if str(item.pk) == str(selected_id)), None)
+    selected_account = next((item for item in accounts if str(item.pk) == str(selected_id)), None) if selected_id else None
     if not selected_account and accounts:
         selected_account = accounts[0]
-
     selected_platform = selected_account.platform.code if selected_account else ""
     if selected_account:
         request.session["growth_selected_account_id"] = selected_account.pk
 
     all_actions = GrowthAction.objects.filter(owner=request.user)
     platform_actions = all_actions.filter(platform=selected_platform) if selected_platform else all_actions.none()
-    active_actions = platform_actions.filter(
-        status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED]
-    ).order_by("-priority_score", "id")
-    history_actions = platform_actions.filter(
-        status__in=[GrowthAction.Status.COMPLETED, GrowthAction.Status.SKIPPED]
-    ).order_by("-completed_at", "-created_at")[:20]
-
+    active_actions = platform_actions.filter(status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED]).order_by("-priority_score", "id")
+    history_actions = platform_actions.filter(status__in=[GrowthAction.Status.COMPLETED, GrowthAction.Status.SKIPPED]).order_by("-completed_at", "-created_at")[:20]
     totals = {
         "all": platform_actions.count(),
         "completed": platform_actions.filter(status=GrowthAction.Status.COMPLETED).count(),
         "started": platform_actions.filter(status=GrowthAction.Status.STARTED).count(),
     }
     session_key = f"growth_{selected_platform}" if selected_platform else "growth_none"
-    suggestions = request.session.get(f"{session_key}_keyword_suggestions", [])
-    analysis_summary = request.session.get(f"{session_key}_analysis_summary", "")
-
-    return render(
-        request,
-        "growth/action_center.html",
-        {
-            "accounts": accounts,
-            "selected_account": selected_account,
-            "selected_platform": selected_platform,
-            "channel_cards": _channel_cards(request.user, accounts),
-            "actions": active_actions,
-            "history_actions": history_actions,
-            "totals": totals,
-            "suggestions": suggestions,
-            "analysis_summary": analysis_summary,
-            "growth_chart": _daily_growth_chart(request.user, selected_platform) if selected_platform else [],
-        },
-    )
+    return render(request, "growth/action_center.html", {
+        "accounts": accounts,
+        "selected_account": selected_account,
+        "selected_platform": selected_platform,
+        "channel_cards": _channel_cards(request.user, accounts),
+        "actions": active_actions,
+        "history_actions": history_actions,
+        "totals": totals,
+        "suggestions": request.session.get(f"{session_key}_keyword_suggestions", []),
+        "analysis_summary": request.session.get(f"{session_key}_analysis_summary", ""),
+        "growth_chart": _daily_growth_chart(request.user, selected_platform) if selected_platform else [],
+    })
 
 
 @login_required
@@ -161,33 +162,18 @@ def action_center(request):
 def generate_actions(request):
     keyword = request.POST.get("keyword", "").strip()
     account = get_object_or_404(
-        SocialAccount.objects.select_related("platform"),
-        pk=request.POST.get("account_id"),
-        user=request.user,
-        is_active=True,
-        platform__code__in=SUPPORTED_GROWTH_PLATFORMS,
+        SocialAccount.objects.select_related("platform"), pk=request.POST.get("account_id"), user=request.user,
+        is_active=True, platform__code__in=SUPPORTED_GROWTH_PLATFORMS,
     )
     platform = account.platform.code
-
     try:
-        plan = generate_growth_plan(
-            profile_name=account.profile_name,
-            platform_name=account.platform.name,
-            content_samples=_content_samples(request.user),
-            requested_keyword=keyword,
-        )
+        plan = generate_growth_plan(profile_name=account.profile_name, platform_name=account.platform.name, content_samples=_content_samples(request.user), requested_keyword=keyword)
     except Exception as exc:
         messages.error(request, f"AI 성장 전략 생성에 실패했습니다. 잠시 후 다시 시도해 주세요. ({exc})")
         return redirect(f"/growth/?account={account.pk}")
 
     selected_keyword = keyword or plan.keywords[0]
-    GrowthAction.objects.filter(
-        owner=request.user,
-        platform=platform,
-        status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED],
-    ).delete()
-
-    created = 0
+    GrowthAction.objects.filter(owner=request.user, platform=platform, status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED]).delete()
     for index, item in enumerate(plan.actions):
         action_type = str(item.get("type") or "like").strip().lower()
         if action_type not in ACTION_TYPES:
@@ -197,26 +183,89 @@ def generate_actions(request):
         except (TypeError, ValueError):
             score = 80
         GrowthAction.objects.create(
-            owner=request.user,
-            platform=platform,
-            keyword=selected_keyword[:120],
-            action_type=action_type,
+            owner=request.user, platform=platform, keyword=selected_keyword[:120], action_type=action_type,
             title=str(item.get("title") or f"{selected_keyword} 성장 미션 {index + 1}")[:200],
             target_url=_platform_search_url(platform, selected_keyword, account.profile_url),
             target_label=f"{account.platform.name} · {selected_keyword}"[:120],
             recommendation_reason=str(item.get("reason") or "AI가 채널 콘텐츠 성향을 분석해 추천했습니다.")[:255],
-            priority_score=score,
-            suggested_comment=str(item.get("comment") or ""),
+            priority_score=score, suggested_comment=str(item.get("comment") or ""),
         )
-        created += 1
 
     session_key = f"growth_{platform}"
     request.session[f"{session_key}_keyword_suggestions"] = plan.keywords
     request.session[f"{session_key}_analysis_summary"] = plan.summary
     request.session["growth_selected_account_id"] = account.pk
     request.session.modified = True
-    messages.success(request, f"{account.platform.name} 성장 미션 {created}개를 만들었습니다.")
+    messages.success(request, f"{account.platform.name} 성장 미션 {len(plan.actions[:5])}개를 만들었습니다.")
     return redirect(f"/growth/?account={account.pk}")
+
+
+@login_required
+def prepare_action(request, pk):
+    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user)
+    account = _account_for_action(request.user, action)
+    contents = _relevant_contents(request.user, action)
+    search_links = {
+        "posts": _platform_search_url(action.platform, action.keyword, account.profile_url if account else "", "posts"),
+        "pages": _platform_search_url(action.platform, action.keyword, account.profile_url if account else "", "pages"),
+        "groups": _platform_search_url(action.platform, action.keyword, account.profile_url if account else "", "groups"),
+        "people": _platform_search_url(action.platform, action.keyword, account.profile_url if account else "", "people"),
+        "profile": account.profile_url if account else action.target_url,
+    }
+    return render(request, "growth/action_prepare.html", {
+        "action": action, "account": account, "contents": contents, "search_links": search_links,
+        "candidate_count_available": False,
+    })
+
+
+@login_required
+@require_POST
+def use_content_for_post(request, pk, content_pk):
+    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user, action_type=GrowthAction.ActionType.POST)
+    content = get_object_or_404(ContentItem, pk=content_pk, owner=request.user)
+    account = _account_for_action(request.user, action)
+    if not account or action.platform != "facebook":
+        messages.error(request, "현재는 Facebook 연결 계정의 공식 게시 준비만 지원합니다.")
+        return redirect("growth:prepare_action", pk=action.pk)
+    request.session[PREVIEW_SESSION_KEY] = {
+        "content_ids": [content.pk], "channel_ids": [account.pk], "action": PublishingBatch.Action.UPLOAD,
+    }
+    request.session.modified = True
+    if action.status != GrowthAction.Status.COMPLETED:
+        action.status = GrowthAction.Status.STARTED
+        action.started_at = timezone.now()
+        action.save(update_fields=["status", "started_at"])
+    return redirect("contents:facebook_preview")
+
+
+@login_required
+@require_POST
+def generate_story_video(request, pk, content_pk):
+    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user, action_type=GrowthAction.ActionType.STORY)
+    content = get_object_or_404(ContentItem, pk=content_pk, owner=request.user)
+    if not content.representative_image:
+        messages.error(request, "스토리 영상 제작에는 대표이미지가 필요합니다.")
+        return redirect("growth:prepare_action", pk=action.pk)
+
+    output_dir = Path(settings.MEDIA_ROOT) / "growth_story_exports" / str(request.user.pk)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"story_{content.pk}_{uuid.uuid4().hex[:8]}.mp4"
+    title = re.sub(r"[^0-9A-Za-z가-힣 .,!?_-]", "", content.title)[:42]
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    drawtext = f"drawtext=fontfile={font_path}:text='{title.replace(':', '\\:').replace("'", "")}' :fontcolor=white:fontsize=48:x=(w-text_w)/2:y=h-260:box=1:boxcolor=black@0.55:boxborderw=24"
+    command = [
+        "ffmpeg", "-y", "-loop", "1", "-i", content.representative_image.path,
+        "-f", "lavfi", "-i", "sine=frequency=220:duration=5",
+        "-f", "lavfi", "-i", "sine=frequency=330:duration=5",
+        "-filter_complex", f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0015,1.08)':d=125:s=1080x1920,{drawtext}[v];[1:a][2:a]amix=inputs=2:duration=shortest,volume=0.08[a]",
+        "-map", "[v]", "-map", "[a]", "-t", "5", "-r", "25", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(output_path),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, timeout=45)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        messages.error(request, f"스토리 영상 생성에 실패했습니다: {str(exc)[:120]}")
+        return redirect("growth:prepare_action", pk=action.pk)
+    return FileResponse(open(output_path, "rb"), as_attachment=True, filename=f"SNSGROWUP_story_{content.pk}.mp4", content_type="video/mp4")
 
 
 @login_required
@@ -227,7 +276,7 @@ def start_action(request, pk):
         action.status = GrowthAction.Status.STARTED
         action.started_at = timezone.now()
         action.save(update_fields=["status", "started_at"])
-    return redirect(action.target_url)
+    return redirect("growth:prepare_action", pk=action.pk)
 
 
 @login_required
@@ -238,7 +287,8 @@ def complete_action(request, pk):
     action.completed_at = timezone.now()
     action.save(update_fields=["status", "completed_at"])
     messages.success(request, f"'{action.title}' 작업을 완료 처리했습니다.")
-    return redirect(f"/growth/?platform={action.platform}")
+    account = _account_for_action(request.user, action)
+    return redirect(f"/growth/?account={account.pk}" if account else "/growth/")
 
 
 @login_required
@@ -248,4 +298,5 @@ def skip_action(request, pk):
     action.status = GrowthAction.Status.SKIPPED
     action.completed_at = timezone.now()
     action.save(update_fields=["status", "completed_at"])
-    return redirect(f"/growth/?platform={action.platform}")
+    account = _account_for_action(request.user, action)
+    return redirect(f"/growth/?account={account.pk}" if account else "/growth/")
