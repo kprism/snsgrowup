@@ -4,9 +4,8 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from publishing.models import PublishingBatch, PublishingTask
-from publishing.services import create_publishing_batch
-from publishing.tasks import publish_facebook_task
+from publishing.models import PublishingBatch
+from publishing.services import create_publishing_batch, enqueue_batch_tasks
 from social_channels.models import SocialAccount
 
 from .ai_service import generate_facebook_post
@@ -20,11 +19,7 @@ BULK_DELETE_ACTION = "delete"
 
 def _selected_objects(*, user, content_ids, channel_ids):
     contents = ContentItem.objects.filter(owner=user, pk__in=content_ids).order_by("-created_at")
-    channels = SocialAccount.objects.filter(
-        user=user,
-        is_active=True,
-        pk__in=channel_ids,
-    ).select_related("platform")
+    channels = SocialAccount.objects.filter(user=user, is_active=True, pk__in=channel_ids).select_related("platform")
     return contents, channels
 
 
@@ -56,11 +51,7 @@ def content_list(request):
             messages.success(request, f"선택한 콘텐츠 {deleted_count}건을 삭제했습니다.")
             return redirect("contents:content_list")
 
-        selected_contents, selected_channels = _selected_objects(
-            user=request.user,
-            content_ids=content_ids,
-            channel_ids=channel_ids,
-        )
+        selected_contents, selected_channels = _selected_objects(user=request.user, content_ids=content_ids, channel_ids=channel_ids)
 
         if not selected_channels.exists():
             messages.error(request, "발행할 SNS 채널을 한 개 이상 선택해 주세요.")
@@ -75,21 +66,12 @@ def content_list(request):
             request.session.modified = True
             return redirect("contents:facebook_preview")
         else:
-            batch = create_publishing_batch(
-                owner=request.user,
-                contents=selected_contents,
-                channels=selected_channels,
-                action=action,
-            )
+            batch = create_publishing_batch(owner=request.user, contents=selected_contents, channels=selected_channels, action=action)
             messages.success(request, f"{batch.get_action_display()} 작업 {batch.tasks.count()}건이 생성되었습니다.")
             return redirect("publishing:batch_detail", pk=batch.pk)
 
     action_choices = list(PublishingBatch.Action.choices) + [(BULK_DELETE_ACTION, "선택 콘텐츠 삭제")]
-    return render(
-        request,
-        "contents/content_list.html",
-        {"items": items, "channels": channels, "action_choices": action_choices},
-    )
+    return render(request, "contents/content_list.html", {"items": items, "channels": channels, "action_choices": action_choices})
 
 
 @login_required
@@ -103,23 +85,11 @@ def ai_facebook_draft(request):
 
     content = get_object_or_404(ContentItem, pk=content_id, owner=request.user)
     try:
-        draft = generate_facebook_post(
-            title=content.title,
-            body=content.body,
-            source_url=content.source_url,
-        )
+        draft = generate_facebook_post(title=content.title, body=content.body, source_url=content.source_url)
     except Exception as exc:
         return JsonResponse({"ok": False, "message": str(exc)}, status=400)
 
-    return JsonResponse(
-        {
-            "ok": True,
-            "content_id": content.pk,
-            "message": draft.message,
-            "tags": draft.tags,
-            "hashtag_text": draft.hashtag_text,
-        }
-    )
+    return JsonResponse({"ok": True, "content_id": content.pk, "message": draft.message, "tags": draft.tags, "hashtag_text": draft.hashtag_text})
 
 
 @login_required
@@ -129,11 +99,7 @@ def facebook_preview(request):
     channel_ids = selection.get("channel_ids") or []
     action = selection.get("action")
 
-    contents, channels = _selected_objects(
-        user=request.user,
-        content_ids=content_ids,
-        channel_ids=channel_ids,
-    )
+    contents, channels = _selected_objects(user=request.user, content_ids=content_ids, channel_ids=channel_ids)
     facebook_channels = channels.filter(platform__code="facebook")
 
     if action != PublishingBatch.Action.UPLOAD or not contents.exists() or not channels.exists() or not facebook_channels.exists():
@@ -150,11 +116,7 @@ def facebook_preview(request):
         selected_contents = contents.filter(pk__in=publish_content_ids)
         if not selected_contents.exists():
             messages.error(request, "게시할 콘텐츠를 한 건 이상 선택해 주세요.")
-            return render(
-                request,
-                "contents/facebook_preview.html",
-                {"contents": contents, "channels": channels, "facebook_channels": facebook_channels},
-            )
+            return render(request, "contents/facebook_preview.html", {"contents": contents, "channels": channels, "facebook_channels": facebook_channels})
 
         common_hashtags = request.POST.get("hashtags", "").strip()
         task_payloads = {}
@@ -177,33 +139,18 @@ def facebook_preview(request):
             for channel in channels:
                 task_payloads[(content.pk, channel.pk)] = payload.copy()
 
-        batch = create_publishing_batch(
-            owner=request.user,
-            contents=selected_contents,
-            channels=channels,
-            action=action,
-            task_payloads=task_payloads,
-        )
-
-        queued = 0
-        for task in batch.tasks.select_related("channel__platform").all():
-            if task.status == PublishingTask.Status.PENDING and task.channel.platform.code == "facebook":
-                publish_facebook_task.delay(task.pk)
-                queued += 1
+        batch = create_publishing_batch(owner=request.user, contents=selected_contents, channels=channels, action=action, task_payloads=task_payloads)
+        queued = enqueue_batch_tasks(batch=batch)
 
         request.session.pop(PREVIEW_SESSION_KEY, None)
         request.session.modified = True
         if queued:
-            messages.success(request, f"선택한 Facebook 콘텐츠 {queued}건의 게시를 시작했습니다.")
+            messages.success(request, f"Facebook 콘텐츠 {queued}건을 랜덤 간격 발행 Queue에 등록했습니다.")
         else:
-            messages.warning(request, "게시 가능한 Facebook 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
+            messages.warning(request, "Queue에 등록할 수 있는 Facebook 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
         return redirect("publishing:publish_result", pk=batch.pk)
 
-    return render(
-        request,
-        "contents/facebook_preview.html",
-        {"contents": contents, "channels": channels, "facebook_channels": facebook_channels},
-    )
+    return render(request, "contents/facebook_preview.html", {"contents": contents, "channels": channels, "facebook_channels": facebook_channels})
 
 
 @login_required
