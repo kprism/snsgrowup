@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}자동발행 설정 | SNSGROWUP{% endblock %}
+
+{% block content %}
+<section style="max-width:760px;margin:0 auto;">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px;">
+    <div>
+      <p style="margin:0 0 6px;color:#64748b;font-size:13px;font-weight:700;">발행 관리</p>
+      <h1 style="margin:0;font-size:24px;line-height:1.25;">자동발행 설정</h1>
+      <p style="margin:8px 0 0;color:#64748b;font-size:14px;">게시 간격, 자동 재시도, AI 게시문과 태그 사용 여부를 설정합니다.</p>
+    </div>
+    <a href="{% url 'publishing:batch_list' %}" style="white-space:nowrap;text-decoration:none;color:#334155;font-weight:700;font-size:14px;">발행목록</a>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div style="margin-bottom:14px;padding:12px 14px;border-radius:12px;background:#ecfdf5;color:#166534;font-size:14px;font-weight:700;">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <form method="post" style="background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:20px;">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div style="margin-bottom:14px;padding:12px;border-radius:10px;background:#fff1f2;color:#be123c;font-size:13px;">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div style="display:grid;gap:2px;">
+      {% for field in form %}
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px 0;border-bottom:1px solid #f1f5f9;">
+          <div style="min-width:0;">
+            <label for="{{ field.id_for_label }}" style="display:block;font-size:15px;font-weight:800;color:#0f172a;">{{ field.label }}</label>
+            {% if field.name == 'enabled' %}<small style="color:#64748b;">저장 후 Queue Scheduler에서 자동 게시에 사용됩니다.</small>{% endif %}
+            {% if field.name == 'min_interval_seconds' %}<small style="color:#64748b;">연속 게시 사이의 가장 짧은 대기시간입니다.</small>{% endif %}
+            {% if field.name == 'max_interval_seconds' %}<small style="color:#64748b;">랜덤 간격 사용 시 적용되는 최대 대기시간입니다.</small>{% endif %}
+            {% if field.errors %}<div style="margin-top:5px;color:#dc2626;font-size:12px;">{{ field.errors|striptags }}</div>{% endif %}
+          </div>
+          <div style="flex:0 0 auto;">{{ field }}</div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:18px;">
+      <button type="submit" style="border:0;border-radius:12px;background:#111827;color:#fff;padding:12px 20px;font-size:14px;font-weight:800;cursor:pointer;">설정 저장</button>
+    </div>
+  </form>
+
+  <div style="margin-top:14px;padding:14px 16px;border-radius:14px;background:#f8fafc;color:#475569;font-size:13px;line-height:1.6;">
+    재시도 간격은 Sprint 6 Queue Scheduler에서 5분, 15분, 30분, 1시간, 2시간 순으로 적용됩니다.
+  </div>
+</section>
+{% endblock %}
