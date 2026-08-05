@@ -37,7 +37,7 @@ services:
   worker:
     build: .
     restart: unless-stopped
-    command: celery -A config worker --loglevel=INFO --concurrency=2
+    command: celery -A config worker --beat --loglevel=INFO --concurrency=2
     volumes:
       - .:/app
     env_file:
