@@ -3,12 +3,54 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import AutomationSettingForm
-from .models import AutomationSetting, PublishingBatch, PublishingTask
+from .models import AutomationSetting, PublishingBatch, PublishingTask, PublishQueue
 from .services import ensure_batch_tasks, retry_task
 from .tasks import publish_facebook_task
+
+
+def _queue_for_task(task):
+    try:
+        return task.publish_queue
+    except PublishQueue.DoesNotExist:
+        return None
+
+
+def _decorate_task_queue(task, now=None):
+    now = now or timezone.now()
+    queue = _queue_for_task(task)
+    task.ui_queue = queue
+    task.ui_queue_status = queue.status if queue else ""
+    task.ui_queue_label = queue.get_status_display() if queue else ""
+    task.ui_eta_at = None
+    task.ui_eta_seconds = None
+
+    if queue:
+        eta_at = queue.next_retry_at if queue.status == PublishQueue.Status.RETRY and queue.next_retry_at else queue.scheduled_at
+        task.ui_eta_at = eta_at
+        if queue.status in [PublishQueue.Status.SCHEDULED, PublishQueue.Status.RETRY] and eta_at:
+            task.ui_eta_seconds = max(0, int((eta_at - now).total_seconds()))
+    return task
+
+
+def _queue_summary(tasks, now=None):
+    now = now or timezone.now()
+    counts = {value: 0 for value in PublishQueue.Status.values}
+    next_eta = None
+    for task in tasks:
+        _decorate_task_queue(task, now=now)
+        queue = task.ui_queue
+        if not queue:
+            continue
+        counts[queue.status] = counts.get(queue.status, 0) + 1
+        eta_at = task.ui_eta_at
+        if queue.status in [PublishQueue.Status.SCHEDULED, PublishQueue.Status.RETRY] and eta_at:
+            if next_eta is None or eta_at < next_eta:
+                next_eta = eta_at
+    return counts, next_eta
 
 
 @login_required
@@ -27,12 +69,13 @@ def batch_list(request):
     if status in PublishingBatch.Status.values:
         base_qs = base_qs.filter(status=status)
 
-    batches = list(base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at"))
+    batches = list(base_qs.prefetch_related("contents", "channels__platform", "tasks__publish_queue").order_by("-created_at"))
     for batch in batches:
         if batch.contents.exists() and batch.channels.exists() and not batch.tasks.exists():
             ensure_batch_tasks(batch=batch)
 
-    batches = list(base_qs.prefetch_related("contents", "channels__platform", "tasks").order_by("-created_at"))
+    now = timezone.now()
+    batches = list(base_qs.prefetch_related("contents", "channels__platform", "tasks__publish_queue").order_by("-created_at"))
     for batch in batches:
         tasks = list(batch.tasks.all())
         total = len(tasks)
@@ -42,6 +85,7 @@ def batch_list(request):
         processing = sum(task.status == PublishingTask.Status.PROCESSING for task in tasks)
         pending = sum(task.status == PublishingTask.Status.PENDING for task in tasks)
         finished = success + failed
+        queue_counts, next_eta = _queue_summary(tasks, now=now)
         batch.ui_counts = {
             "total": total,
             "success": success,
@@ -50,6 +94,9 @@ def batch_list(request):
             "processing": processing,
             "pending": pending,
         }
+        batch.ui_queue_counts = queue_counts
+        batch.ui_next_eta = next_eta
+        batch.ui_next_eta_seconds = max(0, int((next_eta - now).total_seconds())) if next_eta else None
         batch.ui_progress = round((finished / total) * 100) if total else 0
         batch.ui_content_titles = list(batch.contents.values_list("title", flat=True)[:2])
 
@@ -96,28 +143,42 @@ def batch_detail(request, pk):
             "channels__platform",
             "tasks__content",
             "tasks__channel__platform",
+            "tasks__publish_queue",
         ),
         pk=pk,
         owner=request.user,
     )
     ensure_batch_tasks(batch=batch)
+    tasks = list(batch.tasks.all())
+    queue_counts, next_eta = _queue_summary(tasks)
+    batch.ui_tasks = tasks
+    batch.ui_next_eta = next_eta
     task_counts = {
-        "all": batch.tasks.count(),
-        "pending": batch.tasks.filter(status=PublishingTask.Status.PENDING).count(),
-        "connection_required": batch.tasks.filter(status=PublishingTask.Status.CONNECTION_REQUIRED).count(),
-        "processing": batch.tasks.filter(status=PublishingTask.Status.PROCESSING).count(),
-        "success": batch.tasks.filter(status=PublishingTask.Status.SUCCESS).count(),
-        "failed": batch.tasks.filter(status=PublishingTask.Status.FAILED).count(),
+        "all": len(tasks),
+        "pending": sum(task.status == PublishingTask.Status.PENDING for task in tasks),
+        "connection_required": sum(task.status == PublishingTask.Status.CONNECTION_REQUIRED for task in tasks),
+        "processing": sum(task.status == PublishingTask.Status.PROCESSING for task in tasks),
+        "success": sum(task.status == PublishingTask.Status.SUCCESS for task in tasks),
+        "failed": sum(task.status == PublishingTask.Status.FAILED for task in tasks),
     }
     finished = task_counts["success"] + task_counts["failed"]
     progress = round((finished / task_counts["all"]) * 100) if task_counts["all"] else 0
-    return render(request, "publishing/batch_detail.html", {"batch": batch, "task_counts": task_counts, "progress": progress})
+    return render(
+        request,
+        "publishing/batch_detail.html",
+        {
+            "batch": batch,
+            "task_counts": task_counts,
+            "queue_counts": queue_counts,
+            "progress": progress,
+        },
+    )
 
 
 @login_required
 def publish_result(request, pk):
     batch = get_object_or_404(
-        PublishingBatch.objects.prefetch_related("tasks__content", "tasks__channel__platform"),
+        PublishingBatch.objects.prefetch_related("tasks__content", "tasks__channel__platform", "tasks__publish_queue"),
         pk=pk,
         owner=request.user,
     )
@@ -128,10 +189,11 @@ def publish_result(request, pk):
 @require_GET
 def publish_status(request, pk):
     batch = get_object_or_404(
-        PublishingBatch.objects.prefetch_related("tasks__content", "tasks__channel__platform"),
+        PublishingBatch.objects.prefetch_related("tasks__content", "tasks__channel__platform", "tasks__publish_queue"),
         pk=pk,
         owner=request.user,
     )
+    now = timezone.now()
     tasks = list(batch.tasks.all())
     total = len(tasks)
     success = sum(task.status == PublishingTask.Status.SUCCESS for task in tasks)
@@ -143,6 +205,27 @@ def publish_status(request, pk):
     percent = round((finished / total) * 100) if total else 100
     done = total == finished
 
+    response_tasks = []
+    for task in tasks:
+        _decorate_task_queue(task, now=now)
+        response_tasks.append(
+            {
+                "id": task.pk,
+                "status": task.status,
+                "status_label": task.get_status_display(),
+                "content": task.content.title,
+                "channel": task.channel.profile_name,
+                "url": task.external_post_url,
+                "error": task.error_message,
+                "queue_status": task.ui_queue_status,
+                "queue_label": task.ui_queue_label,
+                "scheduled_at": task.ui_eta_at.isoformat() if task.ui_eta_at else None,
+                "eta_seconds": task.ui_eta_seconds,
+                "retry_count": task.ui_queue.retry_count if task.ui_queue else 0,
+                "last_error": task.ui_queue.last_error if task.ui_queue else "",
+            }
+        )
+
     return JsonResponse(
         {
             "done": done,
@@ -153,18 +236,7 @@ def publish_status(request, pk):
             "connection_required": connection_required,
             "processing": processing,
             "pending": pending,
-            "tasks": [
-                {
-                    "id": task.pk,
-                    "status": task.status,
-                    "status_label": task.get_status_display(),
-                    "content": task.content.title,
-                    "channel": task.channel.profile_name,
-                    "url": task.external_post_url,
-                    "error": task.error_message,
-                }
-                for task in tasks
-            ],
+            "tasks": response_tasks,
         }
     )
 
