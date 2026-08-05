@@ -1,7 +1,10 @@
+from datetime import timedelta
 from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -35,13 +38,50 @@ def _page_context(user):
     return account, contents
 
 
+def _daily_growth_chart(user):
+    today = timezone.localdate()
+    start = today - timedelta(days=6)
+    rows = (
+        GrowthAction.objects.filter(
+            owner=user,
+            status=GrowthAction.Status.COMPLETED,
+            completed_at__date__gte=start,
+        )
+        .annotate(day=TruncDate("completed_at"))
+        .values("day")
+        .annotate(total=Count("id"))
+    )
+    counts = {row["day"]: row["total"] for row in rows}
+    maximum = max(counts.values(), default=1)
+    chart = []
+    for offset in range(7):
+        day = start + timedelta(days=offset)
+        total = counts.get(day, 0)
+        chart.append(
+            {
+                "date": day,
+                "label": day.strftime("%m.%d"),
+                "total": total,
+                "height": max(8, round((total / maximum) * 100)) if total else 8,
+                "is_today": day == today,
+            }
+        )
+    return chart
+
+
 @login_required
 def action_center(request):
-    actions = GrowthAction.objects.filter(owner=request.user)
+    all_actions = GrowthAction.objects.filter(owner=request.user)
+    active_actions = all_actions.filter(
+        status__in=[GrowthAction.Status.READY, GrowthAction.Status.STARTED]
+    ).order_by("-priority_score", "id")
+    history_actions = all_actions.filter(
+        status__in=[GrowthAction.Status.COMPLETED, GrowthAction.Status.SKIPPED]
+    ).order_by("-completed_at", "-created_at")[:20]
     totals = {
-        "all": actions.count(),
-        "completed": actions.filter(status=GrowthAction.Status.COMPLETED).count(),
-        "started": actions.filter(status=GrowthAction.Status.STARTED).count(),
+        "all": all_actions.count(),
+        "completed": all_actions.filter(status=GrowthAction.Status.COMPLETED).count(),
+        "started": all_actions.filter(status=GrowthAction.Status.STARTED).count(),
     }
     suggestions = request.session.get("growth_keyword_suggestions", [])
     analysis_summary = request.session.get("growth_analysis_summary", "")
@@ -49,10 +89,12 @@ def action_center(request):
         request,
         "growth/action_center.html",
         {
-            "actions": actions,
+            "actions": active_actions,
+            "history_actions": history_actions,
             "totals": totals,
             "suggestions": suggestions,
             "analysis_summary": analysis_summary,
+            "growth_chart": _daily_growth_chart(request.user),
         },
     )
 
@@ -136,5 +178,6 @@ def complete_action(request, pk):
 def skip_action(request, pk):
     action = get_object_or_404(GrowthAction, pk=pk, owner=request.user)
     action.status = GrowthAction.Status.SKIPPED
-    action.save(update_fields=["status"])
+    action.completed_at = timezone.now()
+    action.save(update_fields=["status", "completed_at"])
     return redirect("growth:action_center")
