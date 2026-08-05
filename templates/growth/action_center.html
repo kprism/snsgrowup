@@ -3,59 +3,80 @@
 {% block content %}
 <div class="growth-page">
 <section class="page-head compact-head">
-  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>페이지 콘텐츠 성향을 AI가 분석해 동종 관심사 키워드와 수동 실행 미션을 추천합니다.</p></div>
+  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>등록한 SNS 채널별로 AI가 콘텐츠 성향을 분석하고 수동 실행 미션을 추천합니다.</p></div>
 </section>
 {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
+{% if accounts %}
+<section class="growth-channel-strip" aria-label="등록 채널별 오늘 할 일">
+  {% for item in channel_cards %}
+  <a href="?account={{ item.account.pk }}" class="growth-channel-card{% if selected_account.pk == item.account.pk %} is-active{% endif %}">
+    <span class="growth-channel-name">{{ item.account.platform.name }}</span>
+    <strong>{{ item.account.profile_name }}</strong>
+    <div><span>할 일 {{ item.ready }}개</span><span>오늘 완료 {{ item.completed_today }}개</span></div>
+  </a>
+  {% endfor %}
+</section>
+
 <section class="panel compact-panel growth-generator">
-  <div class="panel-head"><div><h2>AI 성장 미션 만들기</h2><p>직접 키워드를 입력하거나 AI 추천 키워드를 눌러 선택하세요.</p></div></div>
+  <div class="panel-head"><div><h2>AI 성장 미션 만들기</h2><p>선택한 등록 채널 안에서만 수행할 미션을 생성합니다.</p></div></div>
   <div class="growth-generator-body">
+    <form method="get" class="growth-account-filter">
+      <label for="growth-account">성장시킬 SNS 채널</label>
+      <select id="growth-account" name="account" onchange="this.form.submit()">
+        {% for account in accounts %}<option value="{{ account.pk }}" {% if selected_account.pk == account.pk %}selected{% endif %}>{{ account.platform.name }} · {{ account.profile_name }}</option>{% endfor %}
+      </select>
+    </form>
     {% if analysis_summary %}<div class="growth-analysis"><strong>AI 콘텐츠 분석</strong><span>{{ analysis_summary }}</span></div>{% endif %}
     {% if suggestions %}<div class="growth-keywords">{% for keyword in suggestions %}<button type="button" class="growth-keyword-chip" data-keyword="{{ keyword }}">{{ keyword }}</button>{% endfor %}</div>{% endif %}
     <form method="post" action="{% url 'growth:generate_actions' %}" class="growth-keyword-form">{% csrf_token %}
+      <input type="hidden" name="account_id" value="{{ selected_account.pk }}">
       <label for="growth-keyword">성장 키워드</label>
-      <div class="growth-input-row"><input id="growth-keyword" name="keyword" type="text" placeholder="예: 창원 지역뉴스, 경남 교육정책, 지역 생활정보" autocomplete="off"><button class="button primary" type="submit">AI 미션 생성</button></div>
-      <small>비워두면 Facebook 페이지명과 최근 콘텐츠를 기준으로 AI가 추천합니다.</small>
+      <div class="growth-input-row"><input id="growth-keyword" name="keyword" type="text" placeholder="예: 창원 지역뉴스, 경남 교육정책, 지역 생활정보" autocomplete="off"><button class="button primary" type="submit">{{ selected_account.platform.name }} AI 미션 생성</button></div>
+      <small>비워두면 {{ selected_account.platform.name }} 계정명과 최근 콘텐츠를 기준으로 AI가 추천합니다.</small>
     </form>
   </div>
 </section>
 
 <section class="publishing-summary growth-summary">
-  <article><span>전체</span><strong>{{ totals.all }}</strong></article><article><span>진행 중</span><strong>{{ totals.started }}</strong></article><article><span>완료</span><strong>{{ totals.completed }}</strong></article>
+  <article><span>{{ selected_account.platform.name }} 전체</span><strong>{{ totals.all }}</strong></article><article><span>진행 중</span><strong>{{ totals.started }}</strong></article><article><span>완료</span><strong>{{ totals.completed }}</strong></article>
 </section>
 
 <section class="growth-workspace">
   <div class="growth-column">
     <section class="growth-section-card">
-      <div class="growth-section-head"><h2>추천 작업</h2><p>우선순위가 높은 미션부터 실행하세요.</p></div>
+      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 추천 작업</h2><p>우선순위가 높은 미션부터 실행하세요.</p></div>
       {% if actions %}<div class="growth-action-stack">
       {% for action in actions %}
         <article class="growth-action-card">
           <div class="growth-action-top"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span class="growth-action-type">{{ action.get_action_type_display }}</span><span class="growth-score">{{ action.priority_score }}점</span></div>
           <h3>{{ action.title }}</h3><p>{{ action.recommendation_reason|default:"AI 추천 성장 작업" }}</p>
           {% if action.suggested_comment %}<div class="growth-comment"><strong>추천 댓글</strong><span>{{ action.suggested_comment }}</span><button type="button" class="button soft button-small copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">복사</button></div>{% endif %}
-          <div class="growth-card-actions"><form method="post" action="{% url 'growth:start_action' action.pk %}" target="_blank">{% csrf_token %}<button class="button primary" type="submit">실행</button></form><form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">완료</button></form><form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">건너뛰기</button></form></div>
+          <div class="growth-card-actions"><form method="post" action="{% url 'growth:start_action' action.pk %}" target="_blank">{% csrf_token %}<button class="button primary" type="submit">{{ selected_account.platform.name }}에서 실행</button></form><form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">완료</button></form><form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">건너뛰기</button></form></div>
         </article>
-      {% endfor %}</div>{% else %}<div class="growth-empty"><strong>추천 작업이 없습니다</strong><span>키워드를 선택하고 AI 미션을 생성하세요.</span></div>{% endif %}
+      {% endfor %}</div>{% else %}<div class="growth-empty"><strong>{{ selected_account.platform.name }} 할 일이 0개입니다</strong><span>AI 미션 생성을 누르면 이 채널용 작업이 만들어집니다.</span></div>{% endif %}
     </section>
   </div>
 
   <div class="growth-column">
     <section class="growth-section-card">
-      <div class="growth-section-head"><h2>진행 기록</h2><p>완료하거나 건너뛴 최근 작업입니다.</p></div>
+      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 진행 기록</h2><p>완료하거나 건너뛴 최근 작업입니다.</p></div>
       {% if history_actions %}<div class="growth-history-list">{% for action in history_actions %}<article class="growth-history-item"><div class="growth-history-item-top"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span>{{ action.get_action_type_display }}</span><time>{% if action.completed_at %}{{ action.completed_at|date:"m.d H:i" }}{% else %}{{ action.created_at|date:"m.d H:i" }}{% endif %}</time></div><h3>{{ action.title|truncatechars:48 }}</h3><p>{{ action.target_label|default:"AI 성장 미션" }}</p></article>{% endfor %}</div>{% else %}<div class="growth-empty compact"><strong>아직 기록이 없습니다</strong><span>작업을 완료하면 여기에 쌓입니다.</span></div>{% endif %}
     </section>
   </div>
 
   <div class="growth-column growth-chart-column">
     <section class="growth-section-card">
-      <div class="growth-section-head"><h2>일자별 성장 그래프</h2><p>최근 7일간 완료한 성장 액션 수입니다.</p></div>
-      <div class="growth-chart-wrap"><div class="growth-chart">{% for day in growth_chart %}<div class="growth-chart-day{% if day.is_today %} is-today{% endif %}"><div class="growth-chart-bar-wrap"><div class="growth-chart-bar" style="height:{{ day.height }}%"></div></div><strong class="growth-chart-value">{{ day.total }}</strong><span class="growth-chart-label">{{ day.label }}</span></div>{% endfor %}</div><p class="growth-chart-caption">완료 처리된 작업을 기준으로 집계합니다.</p></div>
+      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 일자별 그래프</h2><p>최근 7일간 완료한 성장 액션 수입니다.</p></div>
+      <div class="growth-chart-wrap"><div class="growth-chart">{% for day in growth_chart %}<div class="growth-chart-day{% if day.is_today %} is-today{% endif %}"><div class="growth-chart-bar-wrap"><div class="growth-chart-bar" style="height:{{ day.height }}%"></div></div><strong class="growth-chart-value">{{ day.total }}</strong><span class="growth-chart-label">{{ day.label }}</span></div>{% endfor %}</div><p class="growth-chart-caption">완료 처리된 {{ selected_account.platform.name }} 작업을 기준으로 집계합니다.</p></div>
     </section>
   </div>
 </section>
+{% else %}
+<section class="panel compact-panel"><div class="empty-state compact-empty"><h2>등록된 SNS 채널이 없습니다</h2><p>먼저 Facebook, Instagram, Threads 또는 YouTube 채널을 등록하세요.</p><a class="button primary" href="{% url 'social_channels:account_list' %}">SNS 채널 등록</a></div></section>
+{% endif %}
 </div>
 <script>
-(() => {const input=document.getElementById('growth-keyword');document.querySelectorAll('.growth-keyword-chip').forEach(b=>b.addEventListener('click',()=>{input.value=b.dataset.keyword||'';input.focus();}));document.querySelectorAll('.copy-comment').forEach(b=>b.addEventListener('click',async()=>{await navigator.clipboard.writeText(b.dataset.comment||'');const t=b.textContent;b.textContent='복사됨';setTimeout(()=>b.textContent=t,1200);}));})();
+(() => {const input=document.getElementById('growth-keyword');if(input){document.querySelectorAll('.growth-keyword-chip').forEach(b=>b.addEventListener('click',()=>{input.value=b.dataset.keyword||'';input.focus();}));}document.querySelectorAll('.copy-comment').forEach(b=>b.addEventListener('click',async()=>{await navigator.clipboard.writeText(b.dataset.comment||'');const t=b.textContent;b.textContent='복사됨';setTimeout(()=>b.textContent=t,1200);}));})();
 </script>
 {% endblock %}
