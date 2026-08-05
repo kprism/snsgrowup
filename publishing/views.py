@@ -5,7 +5,8 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
-from .models import PublishingBatch, PublishingTask
+from .forms import AutomationSettingForm
+from .models import AutomationSetting, PublishingBatch, PublishingTask
 from .services import ensure_batch_tasks, retry_task
 from .tasks import publish_facebook_task
 
@@ -71,6 +72,20 @@ def batch_list(request):
             "status_choices": PublishingBatch.Status.choices,
         },
     )
+
+
+@login_required
+def automation_settings(request):
+    setting, _ = AutomationSetting.objects.get_or_create(owner=request.user)
+    if request.method == "POST":
+        form = AutomationSettingForm(request.POST, instance=setting)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "자동발행 설정을 저장했습니다.")
+            return redirect("publishing:automation_settings")
+    else:
+        form = AutomationSettingForm(instance=setting)
+    return render(request, "publishing/automation_settings.html", {"form": form, "setting": setting})
 
 
 @login_required
