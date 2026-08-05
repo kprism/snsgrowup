@@ -51,7 +51,22 @@ def _facebook_metrics(account) -> tuple[int | None, int | None, int | None]:
 
 def collect_account_snapshot(account, *, force: bool = False) -> ChannelMetricSnapshot:
     recent = account.metric_snapshots.first()
-    if recent and not force and recent.collected_at >= timezone.now() - timedelta(minutes=10):
+
+    # 성공한 최신값만 10분간 재사용한다. 실패값은 즉시 다시 수집한다.
+    # 또한 계정 토큰/연결정보가 갱신된 경우 기존 스냅샷보다 account.updated_at이
+    # 최신이므로 캐시를 무시하고 새 토큰으로 즉시 재조회한다.
+    account_was_updated = bool(
+        recent
+        and getattr(account, "updated_at", None)
+        and account.updated_at > recent.collected_at
+    )
+    if (
+        recent
+        and recent.collection_ok
+        and not force
+        and not account_was_updated
+        and recent.collected_at >= timezone.now() - timedelta(minutes=10)
+    ):
         return recent
 
     completed_actions = GrowthAction.objects.filter(
