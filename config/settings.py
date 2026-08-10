@@ -117,6 +117,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="").rstrip("/")
 
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
 OPENAI_MODEL = env("OPENAI_MODEL", default="gpt-5-mini")
