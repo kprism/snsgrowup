@@ -28,6 +28,8 @@
         {% if account.is_connected %}<form method="post" action="{% url 'social_channels:facebook_disconnect' account.pk %}">{% csrf_token %}<button class="button soft" type="submit">연결 해제</button></form>{% else %}<a class="button facebook-button" href="{% url 'social_channels:facebook_connect' account.pk %}">Facebook 연결</a>{% endif %}
       {% elif account.platform.code == 'instagram' %}
         {% if account.is_connected %}<form method="post" action="{% url 'social_channels:instagram_disconnect' account.pk %}">{% csrf_token %}<button class="button soft" type="submit">연결 해제</button></form>{% else %}<a class="button primary" href="{% url 'social_channels:instagram_connect' account.pk %}">Instagram 연결</a>{% endif %}
+      {% elif account.platform.code == 'youtube' %}
+        {% if account.is_connected %}<form method="post" action="{% url 'social_channels:youtube_disconnect' account.pk %}">{% csrf_token %}<button class="button soft" type="submit">연결 해제</button></form>{% else %}<a class="button primary" href="{% url 'social_channels:youtube_connect' account.pk %}">YouTube 연결</a>{% endif %}
       {% else %}<button class="button soft" type="button" disabled>연결 준비 중</button>{% endif %}
       <a class="button soft" href="{% url 'social_channels:account_update' account.pk %}">수정</a>
       <a class="button danger" href="{% url 'social_channels:account_delete' account.pk %}">삭제</a>
