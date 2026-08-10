@@ -106,6 +106,7 @@ def _quick_publish_payloads(*, request, owner, contents, channels):
                 "image": _absolute_image_url(request, content) if content.representative_image else "",
                 "quick_publish": True,
                 "platform": platform,
+                "youtube_mode": "short" if platform == "youtube" else "",
             }
             payloads[(content.pk, channel.pk)] = payload
     return payloads, ai_fallbacks
@@ -136,12 +137,13 @@ def content_list(request):
         if not selected_channels.exists():
             messages.error(request, "발행할 SNS 채널을 한 개 이상 선택해 주세요.")
         elif command == QUICK_PUBLISH_COMMAND:
-            unsupported = selected_channels.exclude(platform__code__in=["facebook", "instagram"])
+            unsupported = selected_channels.exclude(platform__code__in=["facebook", "instagram", "youtube"])
             if unsupported.exists():
-                messages.error(request, "AI 바로 게시는 현재 Facebook과 Instagram 연결 채널을 지원합니다.")
+                messages.error(request, "AI 바로 게시는 현재 Facebook, Instagram, YouTube 연결 채널을 지원합니다.")
                 return redirect("contents:content_list")
-            if selected_channels.filter(platform__code="instagram").exists() and selected_contents.filter(representative_image="").exists():
-                messages.error(request, "Instagram 게시에는 대표이미지가 필요합니다. 대표이미지가 없는 콘텐츠를 제외해 주세요.")
+            image_required = selected_channels.filter(platform__code__in=["instagram", "youtube"]).exists()
+            if image_required and selected_contents.filter(representative_image="").exists():
+                messages.error(request, "Instagram 게시와 YouTube 쇼츠 생성에는 대표이미지가 필요합니다. 대표이미지가 없는 콘텐츠를 제외해 주세요.")
                 return redirect("contents:content_list")
             task_payloads, ai_fallbacks = _quick_publish_payloads(
                 request=request,
@@ -159,6 +161,8 @@ def content_list(request):
             queued = enqueue_batch_tasks(batch=batch)
             if queued:
                 message = f"선택한 콘텐츠 {queued}건을 채널별 AI 처리 후 랜덤 발행 Queue에 등록했습니다."
+                if selected_channels.filter(platform__code="youtube").exists():
+                    message += " YouTube는 10초 한국어 음성 쇼츠를 자동 생성해 비공개 테스트 업로드합니다."
                 if ai_fallbacks:
                     message += f" AI 생성에 실패한 {ai_fallbacks}건은 원문으로 등록했습니다."
                 messages.success(request, message)
