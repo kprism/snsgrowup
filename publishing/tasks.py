@@ -13,6 +13,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from shorts.services import ShortsGenerationError, generate_news_short
+from social_channels import youtube_oauth
+
 from .models import AutomationSetting, PublishQueue, PublishingTask
 
 RETRY_DELAYS = [300, 900, 1800, 3600, 7200]
@@ -120,6 +123,8 @@ def dispatch_due_publish_queues(limit: int = 20):
             publish_facebook_task.delay(task_id, queue_id)
         elif platform == "instagram":
             publish_instagram_task.delay(task_id, queue_id)
+        elif platform == "youtube":
+            publish_youtube_short_task.delay(task_id, queue_id)
         else:
             task = PublishingTask.objects.select_related("batch").get(pk=task_id)
             _fail_task(task, queue_id, f"지원하지 않는 게시 채널입니다: {platform}")
@@ -257,4 +262,116 @@ def publish_instagram_task(self, publishing_task_id: int, queue_id: int | None =
                 permalink = str((detail.json() or {}).get("permalink") or "")
         return _finish_task(task, queue_id, media_id, permalink)
     except Exception as exc:
+        return _fail_task(task, queue_id, str(exc))
+
+
+def _youtube_access_token(channel) -> str:
+    """Return a valid access token, refreshing and persisting it when needed."""
+    token = channel.access_token
+    needs_refresh = not token or (channel.token_expires_at and channel.token_expires_at <= timezone.now())
+    if not needs_refresh:
+        return token
+    if not channel.refresh_token:
+        raise ValueError("YouTube refresh token이 없습니다. 채널을 다시 연결해 주세요.")
+    refreshed = youtube_oauth.refresh_access_token(refresh_token=channel.refresh_token)
+    channel.access_token = refreshed["access_token"]
+    channel.token_expires_at = youtube_oauth.expiry_datetime(refreshed)
+    channel.save(update_fields=["access_token", "token_expires_at", "updated_at"])
+    return channel.access_token
+
+
+def _youtube_upload(*, access_token: str, video_path: Path, title: str, description: str) -> dict:
+    metadata = {
+        "snippet": {
+            "title": title[:100],
+            "description": description[:5000],
+            "categoryId": "25",
+        },
+        "status": {
+            # Unverified API projects are restricted to private uploads by YouTube.
+            "privacyStatus": "private",
+            "selfDeclaredMadeForKids": False,
+        },
+    }
+    init = requests.post(
+        "https://www.googleapis.com/upload/youtube/v3/videos",
+        params={"uploadType": "resumable", "part": "snippet,status"},
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Upload-Content-Type": "video/mp4",
+            "X-Upload-Content-Length": str(video_path.stat().st_size),
+        },
+        json=metadata,
+        timeout=45,
+    )
+    if not init.ok:
+        try:
+            detail = init.json()
+        except ValueError:
+            detail = init.text
+        raise ValueError(f"YouTube 업로드 세션 생성 실패: {detail}")
+    upload_url = init.headers.get("Location")
+    if not upload_url:
+        raise ValueError("YouTube resumable upload URL을 받지 못했습니다.")
+
+    with video_path.open("rb") as video_file:
+        uploaded = requests.put(
+            upload_url,
+            headers={"Content-Type": "video/mp4"},
+            data=video_file,
+            timeout=180,
+        )
+    try:
+        result = uploaded.json()
+    except ValueError:
+        result = {}
+    if not uploaded.ok:
+        raise ValueError(f"YouTube 영상 업로드 실패: {result or uploaded.text}")
+    return result
+
+
+@shared_task(bind=True)
+def publish_youtube_short_task(self, publishing_task_id: int, queue_id: int | None = None):
+    task = PublishingTask.objects.select_related(
+        "batch", "batch__owner", "content", "channel__platform",
+    ).get(pk=publishing_task_id)
+
+    if task.channel.platform.code != "youtube":
+        return _fail_task(task, queue_id, "YouTube 작업이 아닙니다.")
+    if not task.channel.is_connected or not task.channel.external_account_id:
+        return _fail_task(task, queue_id, "YouTube 공식 API 연결이 필요합니다.", connection_required=True)
+    if "https://www.googleapis.com/auth/youtube.upload" not in (task.channel.granted_scopes or []):
+        return _fail_task(task, queue_id, "YouTube 업로드 권한(youtube.upload)이 없습니다. 채널을 다시 연결해 주세요.", connection_required=True)
+    if not task.content.representative_image:
+        return _fail_task(task, queue_id, "YouTube 쇼츠 생성에는 대표이미지가 필요합니다.")
+
+    _start_task(task)
+    payload = task.payload or {}
+    try:
+        video_path, script = generate_news_short(content=task.content, task_id=task.pk)
+        token = _youtube_access_token(task.channel)
+        description_parts = [
+            script,
+            str(payload.get("message") or "").strip(),
+            str(payload.get("link") or task.content.source_url or "").strip(),
+            "#Shorts",
+        ]
+        description = "\n\n".join(part for part in description_parts if part)
+        result = _youtube_upload(
+            access_token=token,
+            video_path=video_path,
+            title=task.content.title,
+            description=description,
+        )
+        video_id = str(result.get("id") or "")
+        if not video_id:
+            raise ValueError("YouTube가 업로드된 영상 ID를 반환하지 않았습니다.")
+        payload["youtube_short_script"] = script
+        payload["generated_video"] = str(video_path.relative_to(settings.MEDIA_ROOT))
+        payload["youtube_privacy"] = "private"
+        task.payload = payload
+        task.save(update_fields=["payload", "updated_at"])
+        return _finish_task(task, queue_id, video_id, f"https://www.youtube.com/watch?v={video_id}")
+    except (ShortsGenerationError, youtube_oauth.YouTubeOAuthError, Exception) as exc:
         return _fail_task(task, queue_id, str(exc))
