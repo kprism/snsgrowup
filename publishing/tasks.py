@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
@@ -62,9 +63,41 @@ def _queue_failure(queue_id: int | None, task: PublishingTask, message: str):
     queue.save(update_fields=["retry_count", "next_retry_at", "status", "last_error", "updated_at"])
 
 
+def _fail_task(task: PublishingTask, queue_id: int | None, message: str, *, connection_required=False):
+    task.status = PublishingTask.Status.CONNECTION_REQUIRED if connection_required else PublishingTask.Status.FAILED
+    task.error_message = message[:2000]
+    task.finished_at = timezone.now()
+    task.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
+    _queue_failure(queue_id, task, task.error_message)
+    task.batch.refresh_status()
+    return {"ok": False, "message": task.error_message}
+
+
+def _start_task(task: PublishingTask):
+    task.status = PublishingTask.Status.PROCESSING
+    task.started_at = timezone.now()
+    task.finished_at = None
+    task.attempt_count += 1
+    task.error_message = ""
+    task.save(update_fields=["status", "started_at", "finished_at", "attempt_count", "error_message", "updated_at"])
+    task.batch.refresh_status()
+
+
+def _finish_task(task: PublishingTask, queue_id: int | None, external_id: str, external_url: str = ""):
+    task.status = PublishingTask.Status.SUCCESS
+    task.external_post_id = external_id
+    task.external_post_url = external_url
+    task.error_message = ""
+    task.finished_at = timezone.now()
+    task.save(update_fields=["status", "external_post_id", "external_post_url", "error_message", "finished_at", "updated_at"])
+    _queue_success(queue_id)
+    task.batch.refresh_status()
+    return {"ok": True, "external_post_id": external_id, "external_post_url": external_url}
+
+
 @shared_task
 def dispatch_due_publish_queues(limit: int = 20):
-    """예약시각 또는 재시도시각이 지난 Queue를 Celery 게시 작업으로 넘긴다."""
+    """예약시각 또는 재시도시각이 지난 Queue를 플랫폼별 Celery 게시 작업으로 넘긴다."""
     now = timezone.now()
     dispatched = []
     with transaction.atomic():
@@ -74,54 +107,37 @@ def dispatch_due_publish_queues(limit: int = 20):
                 Q(status=PublishQueue.Status.SCHEDULED, scheduled_at__lte=now)
                 | Q(status=PublishQueue.Status.RETRY, next_retry_at__lte=now)
             )
-            .select_related("task")
+            .select_related("task__channel__platform")
             .order_by("scheduled_at", "id")[:limit]
         )
         for queue in queues:
             queue.status = PublishQueue.Status.PROCESSING
             queue.save(update_fields=["status", "updated_at"])
-            dispatched.append((queue.task_id, queue.pk))
+            dispatched.append((queue.task_id, queue.pk, queue.task.channel.platform.code))
 
-    for task_id, queue_id in dispatched:
-        publish_facebook_task.delay(task_id, queue_id)
+    for task_id, queue_id, platform in dispatched:
+        if platform == "facebook":
+            publish_facebook_task.delay(task_id, queue_id)
+        elif platform == "instagram":
+            publish_instagram_task.delay(task_id, queue_id)
+        else:
+            task = PublishingTask.objects.select_related("batch").get(pk=task_id)
+            _fail_task(task, queue_id, f"지원하지 않는 게시 채널입니다: {platform}")
     return {"dispatched": len(dispatched)}
 
 
 @shared_task(bind=True)
 def publish_facebook_task(self, publishing_task_id: int, queue_id: int | None = None):
     task = PublishingTask.objects.select_related(
-        "batch",
-        "batch__owner",
-        "content",
-        "channel__platform",
+        "batch", "batch__owner", "content", "channel__platform",
     ).get(pk=publishing_task_id)
 
     if task.channel.platform.code != "facebook":
-        task.status = PublishingTask.Status.FAILED
-        task.error_message = "Facebook 작업이 아닙니다."
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
-        _queue_failure(queue_id, task, task.error_message)
-        task.batch.refresh_status()
-        return {"ok": False, "message": task.error_message}
-
+        return _fail_task(task, queue_id, "Facebook 작업이 아닙니다.")
     if not task.channel.is_connected or not task.channel.access_token or not task.channel.external_account_id:
-        task.status = PublishingTask.Status.CONNECTION_REQUIRED
-        task.error_message = "Facebook 페이지 연결 또는 Page Access Token이 필요합니다."
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
-        _queue_failure(queue_id, task, task.error_message)
-        task.batch.refresh_status()
-        return {"ok": False, "message": task.error_message}
+        return _fail_task(task, queue_id, "Facebook 페이지 연결 또는 Page Access Token이 필요합니다.", connection_required=True)
 
-    task.status = PublishingTask.Status.PROCESSING
-    task.started_at = timezone.now()
-    task.finished_at = None
-    task.attempt_count += 1
-    task.error_message = ""
-    task.save(update_fields=["status", "started_at", "finished_at", "attempt_count", "error_message", "updated_at"])
-    task.batch.refresh_status()
-
+    _start_task(task)
     payload = task.payload or {}
     message = _final_message(payload)
     page_id = task.channel.external_account_id
@@ -132,7 +148,6 @@ def publish_facebook_task(self, publishing_task_id: int, queue_id: int | None = 
     try:
         include_image = bool(payload.get("include_image")) and bool(task.content.representative_image)
         include_link = bool(payload.get("include_link")) and bool(payload.get("link"))
-
         if include_image:
             image_path = Path(task.content.representative_image.path)
             if not image_path.exists():
@@ -157,20 +172,89 @@ def publish_facebook_task(self, publishing_task_id: int, queue_id: int | None = 
             raise ValueError(error.get("message") or f"Facebook API 오류 HTTP {response.status_code}")
 
         external_id = str(result.get("post_id") or result.get("id") or "")
-        task.status = PublishingTask.Status.SUCCESS
-        task.external_post_id = external_id
-        task.external_post_url = f"https://www.facebook.com/{external_id}" if external_id else ""
-        task.error_message = ""
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "external_post_id", "external_post_url", "error_message", "finished_at", "updated_at"])
-        _queue_success(queue_id)
-        task.batch.refresh_status()
-        return {"ok": True, "external_post_id": external_id}
+        external_url = f"https://www.facebook.com/{external_id}" if external_id else ""
+        return _finish_task(task, queue_id, external_id, external_url)
     except Exception as exc:
-        task.status = PublishingTask.Status.FAILED
-        task.error_message = str(exc)[:2000]
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
-        _queue_failure(queue_id, task, task.error_message)
-        task.batch.refresh_status()
-        return {"ok": False, "message": task.error_message}
+        return _fail_task(task, queue_id, str(exc))
+
+
+@shared_task(bind=True)
+def publish_instagram_task(self, publishing_task_id: int, queue_id: int | None = None):
+    task = PublishingTask.objects.select_related(
+        "batch", "batch__owner", "content", "channel__platform",
+    ).get(pk=publishing_task_id)
+
+    if task.channel.platform.code != "instagram":
+        return _fail_task(task, queue_id, "Instagram 작업이 아닙니다.")
+    if not task.channel.is_connected or not task.channel.access_token or not task.channel.external_account_id:
+        return _fail_task(task, queue_id, "Instagram 프로페셔널 계정 연결과 Access Token이 필요합니다.", connection_required=True)
+    if "instagram_content_publish" not in (task.channel.granted_scopes or []):
+        return _fail_task(task, queue_id, "Instagram 게시 권한(instagram_content_publish)이 없습니다. 채널을 다시 연결해 주세요.", connection_required=True)
+
+    payload = task.payload or {}
+    image_url = str(payload.get("image") or "").strip()
+    if not image_url.startswith("https://"):
+        return _fail_task(task, queue_id, "Instagram 이미지는 Meta가 접근할 수 있는 공개 HTTPS URL이어야 합니다. PUBLIC_BASE_URL 또는 Codespaces 포트 공개 설정을 확인해 주세요.")
+
+    _start_task(task)
+    caption = _final_message(payload)
+    ig_user_id = task.channel.external_account_id
+    token = task.channel.access_token
+    version = settings.FACEBOOK_GRAPH_VERSION
+    graph_root = f"https://graph.facebook.com/{version}"
+
+    try:
+        create_response = requests.post(
+            f"{graph_root}/{ig_user_id}/media",
+            data={"image_url": image_url, "caption": caption, "access_token": token},
+            timeout=60,
+        )
+        create_result = create_response.json()
+        if not create_response.ok or create_result.get("error"):
+            error = create_result.get("error") or {}
+            message = error.get("message") or f"Instagram 컨테이너 생성 오류 HTTP {create_response.status_code}"
+            if "image" in message.lower() or "url" in message.lower():
+                message += " (이미지 URL이 외부 공개 상태인지 확인하세요.)"
+            raise ValueError(message)
+
+        creation_id = str(create_result.get("id") or "")
+        if not creation_id:
+            raise ValueError("Instagram 미디어 컨테이너 ID를 받지 못했습니다.")
+
+        for _ in range(5):
+            status_response = requests.get(
+                f"{graph_root}/{creation_id}",
+                params={"fields": "status_code,status", "access_token": token},
+                timeout=30,
+            )
+            status_result = status_response.json()
+            status_code = str(status_result.get("status_code") or "").upper()
+            if status_code in {"FINISHED", "PUBLISHED"}:
+                break
+            if status_code in {"ERROR", "EXPIRED"}:
+                raise ValueError(status_result.get("status") or f"Instagram 컨테이너 상태: {status_code}")
+            time.sleep(2)
+
+        publish_response = requests.post(
+            f"{graph_root}/{ig_user_id}/media_publish",
+            data={"creation_id": creation_id, "access_token": token},
+            timeout=60,
+        )
+        publish_result = publish_response.json()
+        if not publish_response.ok or publish_result.get("error"):
+            error = publish_result.get("error") or {}
+            raise ValueError(error.get("message") or f"Instagram 게시 오류 HTTP {publish_response.status_code}")
+
+        media_id = str(publish_result.get("id") or "")
+        permalink = ""
+        if media_id:
+            detail = requests.get(
+                f"{graph_root}/{media_id}",
+                params={"fields": "permalink", "access_token": token},
+                timeout=30,
+            )
+            if detail.ok:
+                permalink = str((detail.json() or {}).get("permalink") or "")
+        return _finish_task(task, queue_id, media_id, permalink)
+    except Exception as exc:
+        return _fail_task(task, queue_id, str(exc))
