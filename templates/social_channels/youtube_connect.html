@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}YouTube 연결 | SNSGROWUP{% endblock %}
+{% block content %}
+<section class="page-head compact-head">
+  <div>
+    <span class="eyebrow">YOUTUBE OAUTH</span>
+    <h1>YouTube 공식 API 연결</h1>
+    <p>Google OAuth로 YouTube 채널을 안전하게 연결합니다.</p>
+  </div>
+  <a class="button soft" href="{% url 'social_channels:account_list' %}">SNS 채널로</a>
+</section>
+
+<section class="panel compact-panel">
+  <div class="panel-head">
+    <div><h2>{{ account.profile_name }}</h2><p>{{ account.profile_url }}</p></div>
+  </div>
+  <div class="empty-state compact-empty">
+    {% if configured %}
+      <h2>YouTube 연결 준비가 완료되었습니다</h2>
+      <p>채널 화면에서 다시 YouTube 연결을 눌러 Google 인증을 진행해 주세요.</p>
+    {% else %}
+      <h2>YouTube OAuth 환경변수가 필요합니다</h2>
+      <p>Codespaces의 <code>.env</code>에 Google OAuth Client ID와 Client Secret을 저장한 뒤 web 컨테이너를 재시작하세요.</p>
+      <div class="setup-wide"><span>승인된 리디렉션 URI</span><code>{{ redirect_uri }}</code></div>
+      <p><code>YOUTUBE_CLIENT_ID</code><br><code>YOUTUBE_CLIENT_SECRET</code><br><code>YOUTUBE_REDIRECT_URI</code></p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
