@@ -90,13 +90,13 @@
     const deleting = action.value === 'delete';
     const upload = action.value === 'upload';
     const checkedChannels = channelInputs.filter(input => input.checked);
-    const facebookOnly = checkedChannels.length > 0 && checkedChannels.every(input => input.dataset.platform === 'facebook');
+    const supportedQuickPublish = checkedChannels.length > 0 && checkedChannels.every(input => ['facebook', 'instagram'].includes(input.dataset.platform));
     channelInputs.forEach(input => { input.disabled = deleting; });
     channelGroup.classList.toggle('is-disabled', deleting);
     submit.classList.toggle('danger', deleting);
     submit.classList.toggle('soft', !deleting);
     submit.textContent = deleting ? '삭제 실행' : (upload ? '미리보기' : '실행');
-    quickPublish.hidden = deleting || !upload || !facebookOnly;
+    quickPublish.hidden = deleting || !upload || !supportedQuickPublish;
   }
 
   if (selectAll) {
@@ -113,7 +113,7 @@
     const selectedCount = itemInputs.filter(input => input.checked).length;
     if (!selectedCount) return;
     if (event.submitter === quickPublish) {
-      if (!window.confirm(`선택한 콘텐츠 ${selectedCount}건을 AI가 게시문과 태그를 만든 뒤 랜덤 간격으로 자동 게시합니다. 계속할까요?`)) {
+      if (!window.confirm(`선택한 콘텐츠 ${selectedCount}건을 채널별 AI 게시문과 태그로 만든 뒤 랜덤 간격으로 자동 게시합니다. 계속할까요?`)) {
         event.preventDefault();
       }
       return;
