@@ -71,7 +71,7 @@ def enqueue_batch_tasks(*, batch: PublishingBatch):
 
     tasks = batch.tasks.select_related("channel__platform").filter(status=PublishingTask.Status.PENDING)
     for task in tasks:
-        if task.channel.platform.code != "facebook":
+        if task.channel.platform.code not in {"facebook", "instagram"}:
             continue
         delay = random.randint(minimum, maximum) if setting.use_random_delay else minimum
         cursor += timedelta(seconds=delay)
