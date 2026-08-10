@@ -1,7 +1,12 @@
+from io import BytesIO
+
+from PIL import Image
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.core import signing
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from publishing.models import AutomationSetting, PublishingBatch
@@ -36,12 +41,40 @@ def _delete_selected_contents(*, user, content_ids) -> int:
 def _absolute_image_url(request, content):
     if not content.representative_image:
         return ""
-    path = content.representative_image.url
     from django.conf import settings
+    token = signing.TimestampSigner(salt="instagram-media").sign(str(content.pk))
+    path = reverse("contents:instagram_media", kwargs={"pk": content.pk, "token": token})
     base = getattr(settings, "PUBLIC_BASE_URL", "").strip().rstrip("/")
     if base:
         return f"{base}{path}"
     return request.build_absolute_uri(path)
+
+
+def instagram_media(request, pk, token):
+    """Public, short-lived JPEG endpoint so Meta can fetch an RSS image."""
+    try:
+        signed_pk = signing.TimestampSigner(salt="instagram-media").unsign(token, max_age=3600)
+    except signing.BadSignature:
+        return HttpResponse(status=404)
+    if str(pk) != str(signed_pk):
+        return HttpResponse(status=404)
+
+    content = get_object_or_404(ContentItem, pk=pk)
+    if not content.representative_image:
+        return HttpResponse(status=404)
+
+    try:
+        with Image.open(content.representative_image.path) as source:
+            image = source.convert("RGB")
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=92, optimize=True)
+    except Exception:
+        return HttpResponse(status=404)
+
+    response = HttpResponse(output.getvalue(), content_type="image/jpeg")
+    response["Cache-Control"] = "public, max-age=3600"
+    response["Content-Disposition"] = f'inline; filename="instagram-{content.pk}.jpg"'
+    return response
 
 
 def _quick_publish_payloads(*, request, owner, contents, channels):
