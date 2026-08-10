@@ -33,7 +33,18 @@ def _delete_selected_contents(*, user, content_ids) -> int:
     return len(selected)
 
 
-def _quick_publish_payloads(*, owner, contents, channels):
+def _absolute_image_url(request, content):
+    if not content.representative_image:
+        return ""
+    path = content.representative_image.url
+    from django.conf import settings
+    base = getattr(settings, "PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return f"{base}{path}"
+    return request.build_absolute_uri(path)
+
+
+def _quick_publish_payloads(*, request, owner, contents, channels):
     setting, _ = AutomationSetting.objects.get_or_create(owner=owner)
     payloads = {}
     ai_fallbacks = 0
@@ -50,18 +61,20 @@ def _quick_publish_payloads(*, owner, contents, channels):
             except Exception:
                 ai_fallbacks += 1
 
-        payload = {
-            "title": content.title,
-            "message": message,
-            "hashtags": hashtags,
-            "include_link": bool(content.source_url),
-            "include_image": bool(content.representative_image),
-            "link": content.source_url or "",
-            "image": content.representative_image.url if content.representative_image else "",
-            "quick_publish": True,
-        }
         for channel in channels:
-            payloads[(content.pk, channel.pk)] = payload.copy()
+            platform = channel.platform.code
+            payload = {
+                "title": content.title,
+                "message": message,
+                "hashtags": hashtags,
+                "include_link": bool(content.source_url) if platform == "facebook" else False,
+                "include_image": bool(content.representative_image),
+                "link": content.source_url or "",
+                "image": _absolute_image_url(request, content) if content.representative_image else "",
+                "quick_publish": True,
+                "platform": platform,
+            }
+            payloads[(content.pk, channel.pk)] = payload
     return payloads, ai_fallbacks
 
 
@@ -90,10 +103,15 @@ def content_list(request):
         if not selected_channels.exists():
             messages.error(request, "발행할 SNS 채널을 한 개 이상 선택해 주세요.")
         elif command == QUICK_PUBLISH_COMMAND:
-            if selected_channels.exclude(platform__code="facebook").exists():
-                messages.error(request, "바로 게시는 현재 Facebook 연결 채널만 지원합니다.")
+            unsupported = selected_channels.exclude(platform__code__in=["facebook", "instagram"])
+            if unsupported.exists():
+                messages.error(request, "AI 바로 게시는 현재 Facebook과 Instagram 연결 채널을 지원합니다.")
+                return redirect("contents:content_list")
+            if selected_channels.filter(platform__code="instagram").exists() and selected_contents.filter(representative_image="").exists():
+                messages.error(request, "Instagram 게시에는 대표이미지가 필요합니다. 대표이미지가 없는 콘텐츠를 제외해 주세요.")
                 return redirect("contents:content_list")
             task_payloads, ai_fallbacks = _quick_publish_payloads(
+                request=request,
                 owner=request.user,
                 contents=list(selected_contents),
                 channels=list(selected_channels),
@@ -107,12 +125,12 @@ def content_list(request):
             )
             queued = enqueue_batch_tasks(batch=batch)
             if queued:
-                message = f"선택한 콘텐츠 {queued}건을 AI 처리 후 랜덤 발행 Queue에 등록했습니다."
+                message = f"선택한 콘텐츠 {queued}건을 채널별 AI 처리 후 랜덤 발행 Queue에 등록했습니다."
                 if ai_fallbacks:
                     message += f" AI 생성에 실패한 {ai_fallbacks}건은 원문으로 등록했습니다."
                 messages.success(request, message)
                 return redirect("publishing:publish_result", pk=batch.pk)
-            messages.warning(request, "Queue에 등록할 수 있는 Facebook 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
+            messages.warning(request, "Queue에 등록할 수 있는 SNS 작업이 없습니다. 채널 연결 상태를 확인해 주세요.")
             return redirect("publishing:batch_detail", pk=batch.pk)
         elif action not in PublishingBatch.Action.values:
             messages.error(request, "실행할 작업을 선택해 주세요.")
