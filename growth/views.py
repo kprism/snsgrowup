@@ -74,14 +74,12 @@ def _relevant_contents(user, action: GrowthAction, limit: int = 8):
     return (matched or [item for _score, _created, item in ranked])[:limit]
 
 
-
 def _instagram_reel_copy(content) -> dict:
     """Build a concise Instagram Reel caption and article-specific hashtags."""
     title = re.sub(r"\s+", " ", (content.title or "")).strip()
     plain = re.sub(r"<[^>]+>", " ", content.body or "")
     plain = re.sub(r"\s+", " ", plain).strip()
 
-    # 기사 본문 앞부분을 릴스 설명용으로 너무 길지 않게 정리한다.
     sentences = [
         item.strip()
         for item in re.split(r"(?<=[.!?。])\s+", plain)
@@ -102,7 +100,6 @@ def _instagram_reel_copy(content) -> dict:
     if not summary:
         summary = plain[:220].rstrip()
 
-    # 제목과 본문에서 기사별 핵심어를 추출한다.
     ignored = {
         "관련", "대한", "통해", "이번", "오는", "위해", "밝혔다", "한다고",
         "있다", "했다", "하는", "에서", "으로", "그리고", "기자", "경남도",
@@ -351,10 +348,19 @@ def use_content_for_post(request, pk, content_pk):
 @login_required
 @require_POST
 def generate_story_video(request, pk, content_pk):
-    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user, action_type=GrowthAction.ActionType.STORY)
+    action = get_object_or_404(GrowthAction, pk=pk, owner=request.user)
+    is_instagram_reel = action.platform == "instagram" and action.action_type == GrowthAction.ActionType.POST
+    is_story = action.action_type == GrowthAction.ActionType.STORY
+    if not (is_instagram_reel or is_story):
+        messages.error(request, "이 미션에서는 세로형 영상을 제작할 수 없습니다.")
+        return redirect("growth:prepare_action", pk=action.pk)
+
     content = get_object_or_404(ContentItem, pk=content_pk, owner=request.user)
+    kind_label = "릴스" if is_instagram_reel else "스토리"
+    kind_slug = "reel" if is_instagram_reel else "story"
+
     if not content.representative_image:
-        messages.error(request, "스토리 영상 제작에는 대표이미지가 필요합니다.")
+        messages.error(request, f"{kind_label} 영상 제작에는 대표이미지가 필요합니다.")
         return redirect("growth:prepare_action", pk=action.pk)
 
     image_path = Path(content.representative_image.path)
@@ -362,9 +368,9 @@ def generate_story_video(request, pk, content_pk):
         messages.error(request, "대표이미지 원본 파일을 찾을 수 없습니다.")
         return redirect("growth:prepare_action", pk=action.pk)
 
-    output_dir = Path(settings.MEDIA_ROOT) / "growth_story_exports" / str(request.user.pk)
+    output_dir = Path(settings.MEDIA_ROOT) / "growth_video_exports" / kind_slug / str(request.user.pk)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"story_{content.pk}_{uuid.uuid4().hex[:8]}.mp4"
+    output_path = output_dir / f"{kind_slug}_{content.pk}_{uuid.uuid4().hex[:8]}.mp4"
 
     filter_complex = (
         "[0:v]fps=25,split=2[bgsrc][fgsrc];"
@@ -390,22 +396,27 @@ def generate_story_video(request, pk, content_pk):
     try:
         subprocess.run(command, check=True, capture_output=True, text=True, timeout=75)
     except subprocess.TimeoutExpired:
-        messages.error(request, "스토리 영상 생성 시간이 초과되었습니다. 다른 이미지를 선택해 다시 시도해 주세요.")
+        messages.error(request, f"{kind_label} 영상 생성 시간이 초과되었습니다. 다른 이미지를 선택해 다시 시도해 주세요.")
         return redirect("growth:prepare_action", pk=action.pk)
     except subprocess.CalledProcessError as exc:
         error_detail = (exc.stderr or exc.stdout or "FFmpeg 처리 오류").strip().splitlines()
         error_message = error_detail[-1] if error_detail else "FFmpeg 처리 오류"
-        messages.error(request, f"스토리 영상 생성에 실패했습니다: {error_message[:220]}")
+        messages.error(request, f"{kind_label} 영상 생성에 실패했습니다: {error_message[:220]}")
         return redirect("growth:prepare_action", pk=action.pk)
 
     if not output_path.exists() or output_path.stat().st_size < 1024:
-        messages.error(request, "스토리 영상 파일이 정상적으로 생성되지 않았습니다.")
+        messages.error(request, f"{kind_label} 영상 파일이 정상적으로 생성되지 않았습니다.")
         return redirect("growth:prepare_action", pk=action.pk)
+
+    if action.status != GrowthAction.Status.COMPLETED:
+        action.status = GrowthAction.Status.STARTED
+        action.started_at = action.started_at or timezone.now()
+        action.save(update_fields=["status", "started_at"])
 
     return FileResponse(
         open(output_path, "rb"),
         as_attachment=True,
-        filename=f"SNSGROWUP_story_{content.pk}.mp4",
+        filename=f"SNSGROWUP_{kind_slug}_{content.pk}.mp4",
         content_type="video/mp4",
     )
 
