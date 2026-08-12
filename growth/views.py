@@ -177,6 +177,7 @@ def generate_actions(request):
         plan = generate_growth_plan(
             profile_name=account.profile_name,
             platform_name=account.platform.name,
+            platform_code=platform,
             content_samples=_content_samples(request.user),
         )
     except Exception as exc:
@@ -282,8 +283,6 @@ def generate_story_video(request, pk, content_pk):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"story_{content.pk}_{uuid.uuid4().hex[:8]}.mp4"
 
-    # 안정성을 우선한 2.5D 구성이다. 배경은 천천히 이동하고 전경 카드는 반대 방향으로
-    # 움직여 단순 확대보다 입체적으로 보이게 하되, FFmpeg 빌드별 호환성이 낮은 필터는 제외한다.
     filter_complex = (
         "[0:v]fps=25,split=2[bgsrc][fgsrc];"
         "[bgsrc]scale=1280:2276:force_original_aspect_ratio=increase,"
@@ -306,7 +305,7 @@ def generate_story_video(request, pk, content_pk):
         "-movflags", "+faststart", "-shortest", str(output_path),
     ]
     try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=75)
+        subprocess.run(command, check=True, capture_output=True, text=True, timeout=75)
     except subprocess.TimeoutExpired:
         messages.error(request, "스토리 영상 생성 시간이 초과되었습니다. 다른 이미지를 선택해 다시 시도해 주세요.")
         return redirect("growth:prepare_action", pk=action.pk)
