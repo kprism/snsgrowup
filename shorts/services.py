@@ -211,14 +211,37 @@ def _make_anchor_card(*, output_path: Path) -> None:
     source_path.unlink(missing_ok=True)
 
 
-def _configured_anchor_video() -> Path | None:
+def _anchor_video_candidates() -> list[Path]:
+    """Return reusable presenter gesture clips in stable filename order."""
+    raw_dir = os.getenv("SHORTS_ANCHOR_VIDEO_DIR", "shorts/assets/anchors").strip() or "shorts/assets/anchors"
+    directory = Path(raw_dir)
+    if not directory.is_absolute():
+        directory = Path(settings.BASE_DIR) / directory
+
+    pattern = os.getenv("SHORTS_ANCHOR_VIDEO_PATTERN", "anchor_female_gesture_*.mp4").strip() or "anchor_female_gesture_*.mp4"
+    if directory.exists():
+        candidates = sorted(path for path in directory.glob(pattern) if path.is_file())
+        if candidates:
+            return candidates
+
+    # Backward-compatible single-video fallback.
     raw = os.getenv("SHORTS_ANCHOR_VIDEO_PATH", "").strip()
-    if not raw:
+    if raw:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = Path(settings.BASE_DIR) / candidate
+        if candidate.exists():
+            return [candidate]
+    return []
+
+
+def _configured_anchor_video(*, task_id: int) -> Path | None:
+    candidates = _anchor_video_candidates()
+    if not candidates:
         return None
-    candidate = Path(raw)
-    if not candidate.is_absolute():
-        candidate = Path(settings.BASE_DIR) / candidate
-    return candidate if candidate.exists() else None
+    # Stable round-robin selection keeps retries deterministic while still rotating
+    # gestures across consecutive publishing tasks.
+    return candidates[(max(int(task_id), 1) - 1) % len(candidates)]
 
 
 def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
@@ -234,7 +257,7 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"youtube-short-{task_id}.mp4"
     script = _short_script(title=content.title, body=content.body)
-    anchor_video_path = _configured_anchor_video()
+    anchor_video_path = _configured_anchor_video(task_id=task_id)
 
     with tempfile.TemporaryDirectory(prefix="snsgrowup-short-") as temp_dir:
         temp_dir = Path(temp_dir)
