@@ -14,7 +14,7 @@ from .models import GrowthAction
 
 _GENERIC = {
     "관련", "지역", "정보", "게시물", "릴스", "reels", "instagram", "인스타그램",
-    "경남", "창원", "오늘", "미션", "콘텐츠", "계정", "후보", "상위",
+    "오늘", "미션", "콘텐츠", "계정", "후보", "상위",
 }
 
 
@@ -53,6 +53,30 @@ def _graph_get(path: str, *, params: dict) -> dict:
     return payload
 
 
+def _recent_media(*, hashtag_id: str, ig_user_id: str, token: str) -> dict:
+    base = {
+        "user_id": ig_user_id,
+        "limit": 30,
+        "access_token": token,
+    }
+    rich_fields = "id,caption,media_type,media_product_type,permalink,timestamp,username,thumbnail_url"
+    try:
+        return _graph_get(
+            f"{hashtag_id}/recent_media",
+            params={**base, "fields": rich_fields},
+        )
+    except ValueError:
+        # 일부 Graph API 버전/계정 조합에서 media_product_type 또는 username 필드가
+        # 허용되지 않을 수 있으므로 최소 필드로 한 번 더 시도한다.
+        return _graph_get(
+            f"{hashtag_id}/recent_media",
+            params={
+                **base,
+                "fields": "id,caption,media_type,permalink,timestamp,thumbnail_url",
+            },
+        )
+
+
 def _discover_hashtag_media(*, account: SocialAccount, hashtag: str) -> list[dict]:
     token = (account.access_token or "").strip()
     ig_user_id = (account.external_account_id or "").strip()
@@ -70,15 +94,7 @@ def _discover_hashtag_media(*, account: SocialAccount, hashtag: str) -> list[dic
     if not hashtag_id:
         return []
 
-    payload = _graph_get(
-        f"{hashtag_id}/recent_media",
-        params={
-            "user_id": ig_user_id,
-            "fields": "id,caption,media_type,media_product_type,permalink,timestamp,username,thumbnail_url",
-            "limit": 30,
-            "access_token": token,
-        },
-    )
+    payload = _recent_media(hashtag_id=hashtag_id, ig_user_id=ig_user_id, token=token)
     results = []
     for row in payload.get("data") or []:
         if not isinstance(row, dict):
@@ -94,12 +110,29 @@ def _discover_hashtag_media(*, account: SocialAccount, hashtag: str) -> list[dic
 @login_required
 def instagram_discover(request, pk: int):
     action = get_object_or_404(GrowthAction, pk=pk, owner=request.user, platform="instagram")
-    account = get_object_or_404(
-        SocialAccount.objects.select_related("platform"),
-        user=request.user,
-        is_active=True,
-        platform__code="instagram",
+    account = (
+        SocialAccount.objects.filter(
+            user=request.user,
+            is_active=True,
+            platform__code="instagram",
+        )
+        .select_related("platform")
+        .first()
     )
+    if not account:
+        return render(
+            request,
+            "growth/instagram_discover.html",
+            {
+                "action": action,
+                "account": None,
+                "hashtag": "",
+                "hashtag_candidates": [],
+                "mode": "all",
+                "media": [],
+                "error": "연결된 Instagram 계정을 찾지 못했습니다.",
+            },
+        )
 
     candidates = _hashtag_candidates(action.keyword)
     requested = re.sub(r"[^0-9A-Za-z가-힣]", "", (request.GET.get("q") or "").strip())
