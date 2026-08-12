@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import tempfile
@@ -63,21 +64,45 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_l
     return lines
 
 
+def _polite_fallback(text: str) -> str:
+    """Best-effort fallback when AI rewriting is unavailable."""
+    compact = re.sub(r"\s+", " ", text.strip())[:90]
+    replacements = (
+        (r"연다\.$", "엽니다."),
+        (r"한다\.$", "합니다."),
+        (r"된다\.$", "됩니다."),
+        (r"나선다\.$", "나섭니다."),
+        (r"밝혔다\.$", "밝혔습니다."),
+        (r"개최한다\.$", "개최합니다."),
+        (r"진행한다\.$", "진행합니다."),
+        (r"추진한다\.$", "추진합니다."),
+        (r"예정이다\.$", "예정입니다."),
+        (r"계획이다\.$", "계획입니다."),
+    )
+    for pattern, replacement in replacements:
+        compact = re.sub(pattern, replacement, compact)
+    return compact
+
+
 def _short_script(*, title: str, body: str) -> str:
-    fallback = re.sub(r"\s+", " ", (body or title).strip())[:70]
+    fallback = _polite_fallback(body or title) or _polite_fallback(title)
     if not settings.OPENAI_API_KEY:
         return fallback or title[:70]
 
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     prompt = f"""
-다음 뉴스 기사로 10초짜리 유튜브 쇼츠 한국어 음성 멘트를 만들어라.
+다음 뉴스 기사로 10초짜리 유튜브 쇼츠용 한국어 뉴스 브리핑 멘트를 작성하세요.
 규칙:
-- 1~2문장만 작성한다.
-- 약 45~65자의 자연스러운 한국어로 쓴다.
-- 사실을 추가하거나 과장하지 않는다.
-- 인사말, 해시태그, 이모지, 따옴표를 넣지 않는다.
-- 제목을 그대로 전부 반복하지 않는다.
-- 결과는 멘트 본문만 출력한다.
+- 반드시 존댓말 뉴스 브리핑체로 작성하세요.
+- 문장 종결은 자연스럽게 '~합니다', '~했습니다', '~입니다', '~예정입니다' 형태를 사용하세요.
+- 반말 기사체인 '~한다', '~된다', '~연다', '~밝혔다'로 끝내지 마세요.
+- 1~2문장만 작성하세요.
+- 약 45~70자의 자연스러운 한국어로 작성하세요.
+- 기사에 없는 사실을 추가하거나 과장하지 마세요.
+- 인사말, 해시태그, 이모지, 따옴표를 넣지 마세요.
+- 제목 전체를 그대로 반복하지 마세요.
+- 화면 자막과 TTS가 그대로 이 문장을 사용하므로 말로 들었을 때 자연스러워야 합니다.
+- 결과는 멘트 본문만 출력하세요.
 
 제목: {title}
 본문: {(body or '')[:3500]}
@@ -85,7 +110,7 @@ def _short_script(*, title: str, body: str) -> str:
     try:
         response = client.responses.create(model=settings.OPENAI_MODEL, input=prompt)
         text = re.sub(r"\s+", " ", (response.output_text or "").strip())
-        return text[:120] or fallback or title[:70]
+        return text[:140] or fallback or title[:70]
     except Exception:
         return fallback or title[:70]
 
@@ -104,9 +129,9 @@ def _speech_mp3(*, text: str, output_path: Path) -> None:
             "model": getattr(settings, "SHORTS_TTS_MODEL", "gpt-4o-mini-tts"),
             "voice": getattr(settings, "SHORTS_TTS_VOICE", "marin"),
             "input": text,
-            "instructions": "한국어 뉴스 아나운서처럼 또렷하고 차분하게, 약간 빠른 속도로 읽어주세요.",
+            "instructions": "한국의 30대 여성 뉴스 앵커처럼 또렷하고 신뢰감 있게 존댓말로 브리핑해 주세요. 지나치게 감정적이지 않게, 10초 뉴스 쇼츠에 맞춰 약간 빠르고 자연스럽게 읽어주세요.",
             "response_format": "mp3",
-            "speed": 1.12,
+            "speed": 1.10,
         },
         timeout=90,
     )
@@ -126,6 +151,7 @@ def _image_jpeg(source_path: Path, output_path: Path) -> None:
 
 
 def _make_title_bar(*, title: str, output_path: Path) -> None:
+    # Title has its own fixed safe zone, so it never overlaps the anchor's face.
     canvas = Image.new("RGBA", (1080, 280), BLUE)
     draw = ImageDraw.Draw(canvas)
     label_font = _font(30)
@@ -140,22 +166,20 @@ def _make_title_bar(*, title: str, output_path: Path) -> None:
 
 
 def _make_caption(*, script: str, output_path: Path) -> None:
-    canvas = Image.new("RGBA", (1080, 460), TRANSPARENT)
+    # Left-side caption safe zone leaves the lower-right anchor unobstructed.
+    canvas = Image.new("RGBA", (700, 390), TRANSPARENT)
     draw = ImageDraw.Draw(canvas)
-    font = _font(48)
-    lines = _wrap_text(draw, script, font, 900, 3)
+    font = _font(43)
+    lines = _wrap_text(draw, script, font, 610, 3)
     if not lines:
         canvas.save(output_path)
         return
-    line_height = 68
+    line_height = 62
     total_height = len(lines) * line_height
-    y = max(30, (460 - total_height) // 2)
+    y = max(26, (390 - total_height) // 2)
     for line in lines:
-        box = draw.textbbox((0, 0), line, font=font, stroke_width=4)
-        width = box[2] - box[0]
-        x = max(40, (1080 - width) // 2)
         draw.text(
-            (x, y),
+            (34, y),
             line,
             font=font,
             fill=WHITE,
@@ -167,6 +191,7 @@ def _make_caption(*, script: str, output_path: Path) -> None:
 
 
 def _make_anchor_card(*, output_path: Path) -> None:
+    """Fallback still anchor used when no transparent/green-screen motion clip is configured."""
     source_path = output_path.with_suffix(".source.jpg")
     write_anchor_sample(source_path)
     with Image.open(source_path) as source:
@@ -186,8 +211,24 @@ def _make_anchor_card(*, output_path: Path) -> None:
     source_path.unlink(missing_ok=True)
 
 
+def _configured_anchor_video() -> Path | None:
+    """Optional CPU-only anchor motion clip.
+
+    Put a short green-screen or alpha-channel anchor clip in Codespaces and set
+    SHORTS_ANCHOR_VIDEO_PATH. FFmpeg loops it and composites the cutout over the
+    article background. This does not require a GPU.
+    """
+    raw = os.getenv("SHORTS_ANCHOR_VIDEO_PATH", "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = Path(settings.BASE_DIR) / candidate
+    return candidate if candidate.exists() else None
+
+
 def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
-    """Create a 10-second vertical news Short with TTS, motion, title, captions and anchor."""
+    """Create a 10-second vertical news Short with TTS, title, captions and an anchor."""
     if not content.representative_image:
         raise ShortsGenerationError("YouTube 쇼츠 생성에는 대표이미지가 필요합니다.")
 
@@ -199,6 +240,7 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"youtube-short-{task_id}.mp4"
     script = _short_script(title=content.title, body=content.body)
+    anchor_video_path = _configured_anchor_video()
 
     with tempfile.TemporaryDirectory(prefix="snsgrowup-short-") as temp_dir:
         temp_dir = Path(temp_dir)
@@ -212,33 +254,58 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
         _speech_mp3(text=script, output_path=speech_path)
         _make_title_bar(title=content.title, output_path=title_path)
         _make_caption(script=script, output_path=caption_path)
-        _make_anchor_card(output_path=anchor_path)
+        if not anchor_video_path:
+            _make_anchor_card(output_path=anchor_path)
 
+        # Strong but smooth Ken Burns movement keeps the article image alive.
         background_filter = (
-            "scale=1260:2240:force_original_aspect_ratio=increase,"
-            "crop=1260:2240,"
-            "zoompan=z='min(zoom+0.00065,1.18)':"
-            "x='iw/2-(iw/zoom/2)+sin(on/24)*16':"
-            "y='ih/2-(ih/zoom/2)+cos(on/31)*12':"
+            "scale=1320:2350:force_original_aspect_ratio=increase,"
+            "crop=1320:2350,"
+            "zoompan=z='min(zoom+0.0009,1.22)':"
+            "x='iw/2-(iw/zoom/2)+sin(on/22)*22':"
+            "y='ih/2-(ih/zoom/2)+cos(on/29)*17':"
             "d=1:s=1080x1920:fps=30,"
             "format=yuv420p"
         )
-        filter_complex = (
-            f"[0:v]{background_filter}[bg];"
-            "[1:v]format=rgba[title];"
-            "[2:v]format=rgba[caption];"
-            "[3:v]format=rgba[anchor];"
-            "[bg][title]overlay=0:0:format=auto[v1];"
-            "[v1][caption]overlay=0:350:format=auto[v2];"
-            "[v2][anchor]overlay=W-w-36:H-h-54+4*sin(2*PI*t/3):format=auto[v]"
-        )
+
         command = [
             "ffmpeg", "-y",
             "-framerate", "30", "-loop", "1", "-i", str(jpg_path),
             "-framerate", "30", "-loop", "1", "-i", str(title_path),
             "-framerate", "30", "-loop", "1", "-i", str(caption_path),
-            "-framerate", "30", "-loop", "1", "-i", str(anchor_path),
-            "-i", str(speech_path),
+        ]
+
+        if anchor_video_path:
+            # A short presenter loop can contain natural mouth, head and hand motion.
+            # Green screen is removed by chromakey; alpha-channel WebM/MOV can opt out.
+            command += ["-stream_loop", "-1", "-i", str(anchor_video_path)]
+            anchor_has_alpha = os.getenv("SHORTS_ANCHOR_HAS_ALPHA", "0").strip().lower() in {"1", "true", "yes", "on"}
+            if anchor_has_alpha:
+                anchor_filter = "[3:v]fps=30,scale=430:-1:force_original_aspect_ratio=decrease,format=rgba[anchor]"
+            else:
+                similarity = os.getenv("SHORTS_ANCHOR_CHROMA_SIMILARITY", "0.22").strip() or "0.22"
+                blend = os.getenv("SHORTS_ANCHOR_CHROMA_BLEND", "0.08").strip() or "0.08"
+                anchor_filter = (
+                    f"[3:v]fps=30,scale=430:-1:force_original_aspect_ratio=decrease,"
+                    f"chromakey=0x00FF00:{similarity}:{blend},format=rgba[anchor]"
+                )
+        else:
+            command += ["-framerate", "30", "-loop", "1", "-i", str(anchor_path)]
+            anchor_filter = "[3:v]format=rgba[anchor]"
+
+        command += ["-i", str(speech_path)]
+
+        filter_complex = (
+            f"[0:v]{background_filter}[bg];"
+            "[1:v]format=rgba[title];"
+            "[2:v]format=rgba[caption];"
+            f"{anchor_filter};"
+            "[bg][title]overlay=0:0:format=auto[v1];"
+            "[v1][caption]overlay=26:1110:format=auto[v2];"
+            "[v2][anchor]overlay=W-w-24:H-h-30:format=auto[v]"
+        )
+
+        command += [
             "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "4:a:0",
             "-t", "10",
@@ -248,9 +315,9 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
             "-movflags", "+faststart",
             str(output_path),
         ]
-        process = subprocess.run(command, capture_output=True, text=True, timeout=180)
+        process = subprocess.run(command, capture_output=True, text=True, timeout=210)
         if process.returncode != 0 or not output_path.exists():
-            error = (process.stderr or process.stdout or "ffmpeg 실패")[-2200:]
+            error = (process.stderr or process.stdout or "ffmpeg 실패")[-2600:]
             raise ShortsGenerationError(f"쇼츠 영상 생성 실패: {error}")
 
     return output_path, script
