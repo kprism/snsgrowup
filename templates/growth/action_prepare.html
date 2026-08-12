@@ -5,20 +5,29 @@
   <section class="page-head compact-head">
     <div>
       <span class="eyebrow">ACTION PREP</span>
-      <h1>{{ action.get_action_type_display }} 작업 준비</h1>
-      <p>{{ action.title }}</p>
+      {% if action.platform == 'instagram' and action.action_type == 'post' %}
+        <h1>릴스 제작</h1>
+        <p>대상 콘텐츠: {{ action.title }}</p>
+      {% else %}
+        <h1>{{ action.get_action_type_display }} 작업 준비</h1>
+        <p>{{ action.title }}</p>
+      {% endif %}
     </div>
     <a class="button soft" href="{% url 'growth:action_center' %}{% if account %}?account={{ account.pk }}{% endif %}">성장 액션으로</a>
   </section>
 
   {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
+  {% if action.platform == 'instagram' %}
+    <div class="notice">Instagram 성장 작업입니다. 게시물·Reels 후보 탐색과 릴스용 문구·태그 준비를 지원합니다.</div>
+  {% endif %}
+
   <section class="growth-prepare-grid">
     <article class="growth-section-card growth-brief-card">
       <div class="growth-section-head"><h2>무엇을 하면 되나요?</h2><p>검색창만 던져주지 않고, 작업에 맞는 준비물을 먼저 보여드립니다.</p></div>
       <div class="growth-prepare-body">
         <div class="growth-action-top"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span class="growth-action-type">{{ action.get_action_type_display }}</span><span class="growth-score">{{ action.priority_score }}점</span></div>
-        <h3>{{ action.title }}</h3>
+        {% if action.platform == 'instagram' and action.action_type == 'post' %}<h3>릴스 제작</h3><p class="growth-help"><strong>{{ action.title }}</strong></p>{% else %}<h3>{{ action.title }}</h3>{% endif %}
         <p>{{ action.recommendation_reason }}</p>
         {% if action.suggested_comment %}<div class="growth-comment"><strong>AI 추천 댓글 초안</strong><span>{{ action.suggested_comment }}</span><button type="button" class="button soft button-small copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">복사</button></div>{% endif %}
       </div>
@@ -60,56 +69,27 @@
         <div class="growth-content-copy">
           <h3>{{ item.title }}</h3>
           <p>{{ item.body|striptags|truncatechars:170 }}</p>
-
           {% if action.platform == 'instagram' and item.instagram_reel_caption %}
-          <div class="instagram-reel-copy-box">
-            <div class="instagram-reel-copy-head">
-              <strong>Instagram 릴스 문구 · 태그</strong>
-              <button
-                type="button"
-                class="button soft button-small copy-reel-caption"
-                data-caption="{{ item.instagram_reel_caption|escapejs }}"
-              >전체 복사</button>
-            </div>
-
-            <div class="instagram-reel-caption">
-              {{ item.instagram_reel_caption|linebreaksbr }}
-            </div>
-          </div>
+          <div class="instagram-reel-copy-box"><div class="instagram-reel-copy-head"><strong>Instagram 릴스 문구 · 태그</strong><button type="button" class="button soft button-small copy-reel-caption" data-caption="{{ item.instagram_reel_caption|escapejs }}">전체 복사</button></div><div class="instagram-reel-caption">{{ item.instagram_reel_caption|linebreaksbr }}</div></div>
           {% endif %}
-
           <small>{{ item.created_at|date:"Y.m.d H:i" }}</small>
         </div>
         <div class="growth-content-actions">
           {% if action.action_type == 'post' %}
-          <form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>
+            {% if action.platform == 'facebook' %}<form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>{% elif action.platform == 'instagram' %}<a class="button primary" href="{% url 'growth:instagram_discover' action.pk %}?mode=reels">릴스 후보 확인</a>{% endif %}
           {% elif action.action_type == 'story' %}
             {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 스토리 영상 만들기</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
-          {% else %}
-          <a class="button soft" href="{% url 'contents:content_update' item.pk %}">내 콘텐츠 확인</a>
-          {% endif %}
+          {% else %}<a class="button soft" href="{% url 'contents:content_update' item.pk %}">내 콘텐츠 확인</a>{% endif %}
         </div>
       </article>
       {% endfor %}
     </div>{% else %}<div class="growth-empty"><strong>관련 콘텐츠가 없습니다</strong><span>콘텐츠를 먼저 등록하거나 RSS에서 수집해 주세요.</span></div>{% endif %}
   </section>
 
-  <div class="growth-finish-bar">
-    <form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button primary" type="submit">작업 완료 처리</button></form>
-    <form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">이번 작업 건너뛰기</button></form>
-  </div>
+  <div class="growth-finish-bar"><form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button primary" type="submit">작업 완료 처리</button></form><form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">이번 작업 건너뛰기</button></form></div>
 </div>
 <script>
-document.querySelectorAll('.copy-comment').forEach(b => b.addEventListener('click', async () => {
-  await navigator.clipboard.writeText(b.dataset.comment || '');
-  b.textContent = '복사됨';
-}));
-
-document.querySelectorAll('.copy-reel-caption').forEach(b => b.addEventListener('click', async () => {
-  const original = b.textContent;
-  await navigator.clipboard.writeText(b.dataset.caption || '');
-  b.textContent = '복사됨 ✓';
-  setTimeout(() => b.textContent = original, 1400);
-}));
+document.querySelectorAll('.copy-comment').forEach(b => b.addEventListener('click', async () => { await navigator.clipboard.writeText(b.dataset.comment || ''); b.textContent = '복사됨'; }));
+document.querySelectorAll('.copy-reel-caption').forEach(b => b.addEventListener('click', async () => { const original = b.textContent; await navigator.clipboard.writeText(b.dataset.caption || ''); b.textContent = '복사됨 ✓'; setTimeout(() => b.textContent = original, 1400); }));
 </script>
 {% endblock %}
