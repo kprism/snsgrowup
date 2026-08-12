@@ -49,53 +49,45 @@ def _repair_json(client: OpenAI, raw: str) -> dict:
     return _parse_json(repaired.output_text)
 
 
-def _platform_rules(platform_name: str) -> str:
-    name = (platform_name or "").strip().lower()
+def _platform_strategy(platform_code: str, platform_name: str) -> str:
+    if platform_code == "instagram":
+        return f"""
+플랫폼은 {platform_name}이다. Facebook식 페이지·그룹 탐색 전략을 절대 사용하지 않는다.
+Instagram의 핵심은 비팔로워 도달, Reels, 저장·공유, 프로필 방문, 댓글 관계 형성이다.
 
-    if "instagram" in name or "인스타" in name:
+미션 구성 원칙:
+- post: 최근 콘텐츠 중 Instagram에서 반응 가능성이 높은 주제를 골라 피드 또는 Reel 후보로 제안한다.
+- story: 최근 게시/기사 중 Story 재노출에 적합한 주제를 제안한다.
+- comment: 관련 키워드의 상위 게시물/계정을 사용자가 직접 방문해 맥락을 확인한 뒤 남길 댓글 초안을 만든다.
+- like: 관련 키워드의 상위 게시물 1~5위를 직접 확인하도록 안내한다. 자동 좋아요는 제안하지 않는다.
+- follow: 관련 키워드의 상위 계정 1~5위를 직접 확인하고 실제 관련성이 있을 때만 팔로우를 검토하도록 한다.
+- '공공기관 10곳 팔로우', '그룹 가입', '페이지 좋아요' 같은 Facebook식 대량 미션은 금지한다.
+- 검색 결과를 실제 API로 확보하지 못한 상태에서 특정 계정명·순위·팔로워 수를 지어내지 않는다.
+- 사용자가 Instagram에서 직접 실행할 행동과 SNSGROWUP이 자동 준비할 콘텐츠/댓글 초안을 구분한다.
+""".strip()
+    if platform_code == "facebook":
         return """
-[Instagram 전용 성장 엔진]
-- Facebook식 팔로우·그룹 탐색 미션을 그대로 재사용하지 않는다.
-- 핵심은 콘텐츠 성과형 성장이다: Reels로 신규 도달, 저장·공유 가능한 피드/캐러셀, Story 재노출, 게시 후 댓글 대응.
-- 5개 미션 중 최소 3개는 post 또는 story로 만든다.
-- follow 미션은 원칙적으로 생성하지 않는다.
-- like/comment 미션은 최대 1개만 허용하며, 자동 실행이 아니라 사람이 실제 맥락을 확인하는 보조 과제로만 만든다.
-- post 미션은 현재 보유 기사 중 Instagram에서 반응 가능성이 높은 주제를 골라 'Reel 후보', '정보형 피드', '저장형 요약'처럼 구체적으로 작성한다.
-- story 미션은 이미 게시하거나 게시 예정인 콘텐츠를 Story로 재노출하는 용도로 만든다.
-- 제목 첫 문장/Hook, 저장·공유 가능성, 비팔로워 도달 가능성을 우선 평가한다.
-- search_keyword는 외부 계정 검색어가 아니라 내 콘텐츠를 찾기 위한 기사 핵심 키워드로 작성한다.
+플랫폼은 Facebook이다. 페이지, 그룹, 게시물, 지역 기관·사람과의 관계 형성, 공유 가능한 게시물을 중심으로 미션을 만든다.
+페이지/그룹/게시물 검색을 활용할 수 있고, 좋아요·댓글·팔로우 등 실제 행동은 사용자가 직접 수행하도록 한다.
 """.strip()
-
-    if "youtube" in name or "유튜브" in name:
+    if platform_code == "youtube":
         return """
-[YouTube 전용 성장 엔진]
-- Shorts 중심으로 설계한다.
-- 시청 지속시간, 첫 1~2초 Hook, 제목 명확성, 주제 반복성을 우선한다.
-- 최소 3개는 post 미션으로 만든다.
-- follow/like 미션은 만들지 않는다.
-- search_keyword는 Shorts로 만들 기사·주제를 찾기 위한 핵심 키워드로 만든다.
+플랫폼은 YouTube이다. Shorts 주제 선정, 제목·키워드 개선, 시청지속시간, 댓글 응답, 구독 전환에 초점을 둔다.
+Facebook 페이지/그룹/팔로우 미션은 만들지 않는다.
 """.strip()
-
-    if "threads" in name or "쓰레드" in name:
+    if platform_code == "threads":
         return """
-[Threads 전용 성장 엔진]
-- 짧은 텍스트 Hook, 질문형 글, 답글 대화, 동일 주제 연속 게시를 우선한다.
-- 그룹/페이지 탐색 방식은 쓰지 않는다.
-- comment는 실제 대화 참여형 보조 과제로만 사용한다.
+플랫폼은 Threads이다. 첫 문장 Hook, 짧은 연속 게시, 답글 대화, 관련 주제 검색과 대화 참여에 초점을 둔다.
+Facebook 페이지/그룹 미션은 만들지 않는다.
 """.strip()
-
-    return """
-[Facebook 전용 성장 엔진]
-- 페이지·사람·그룹 탐색, 관계 형성, 게시, 댓글, 공유를 조합한다.
-- follow/comment/like 같은 사람이 직접 수행하는 성장 미션을 사용할 수 있다.
-- 게시 미션은 내 콘텐츠 중 관련 주제를 활용하도록 한다.
-""".strip()
+    return f"플랫폼은 {platform_name}이다. 해당 플랫폼 고유의 성장 방식만 사용한다."
 
 
 def generate_growth_plan(
     *,
     profile_name: str,
     platform_name: str,
+    platform_code: str,
     content_samples: list[dict],
 ) -> GrowthPlan:
     if not settings.OPENAI_API_KEY:
@@ -107,22 +99,23 @@ def generate_growth_plan(
     ) or "- 분석할 게시 콘텐츠가 아직 없음"
 
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    platform_rules = _platform_rules(platform_name)
+    strategy = _platform_strategy(platform_code, platform_name)
     prompt = f"""
 너는 한국어 SNS 성장 전략가다. 실제 등록 채널은 {platform_name}이고 계정명은 {profile_name}이다.
-플랫폼마다 성장 신호와 운영 방식이 다르므로 다른 SNS의 미션을 복사하지 않는다.
-아래 플랫폼 전용 규칙과 최근 콘텐츠를 참고하여 오늘 수행할 성장 미션 5개를 설계하라.
-자동 좋아요, 자동 팔로우, 무차별 자동 댓글 등 정책을 우회하는 행동은 제안하지 않는다.
+최근 콘텐츠를 참고하여 오늘 수행할 성장 미션 5개를 설계하라.
+다른 SNS로 이동시키지 말고 반드시 {platform_name} 안에서 수행할 작업만 제안한다.
+자동 좋아요, 자동 팔로우, 자동 댓글, 무차별 DM, 정책 우회 행동은 제안하지 않는다.
 
-{platform_rules}
+플랫폼 전용 전략:
+{strategy}
 
-공통 중요 규칙:
+공통 규칙:
 - 모든 미션은 서로 독립적이다.
-- 각 미션마다 그 미션과 정확히 일치하는 search_keyword를 별도로 만든다.
-- 게시 미션이면 내 콘텐츠 중 무엇을 활용할지 찾기 쉬운 구체적 주제가 검색어에 들어가야 한다.
-- story 미션은 내 관련 콘텐츠를 재가공하거나 재노출하도록 한다.
+- 각 미션마다 정확히 일치하는 search_keyword를 별도로 만든다.
+- 게시 미션은 내 콘텐츠 중 무엇을 활용할지 찾기 쉬운 구체적 주제를 검색어에 넣는다.
+- 댓글/좋아요/팔로우 미션은 사용자가 검색 결과를 직접 확인한 뒤 실행하는 수동 관계 행동이다.
+- 실제 검색 결과를 받지 않았으므로 존재하지 않는 계정명, 순위, 수치, 성과를 만들지 않는다.
 - '경남소식', '지역정보'처럼 지나치게 넓은 검색어를 반복 사용하지 않는다.
-- reason에는 왜 이 플랫폼의 성장에 도움이 되는지 한 문장으로 설명한다.
 
 최근 콘텐츠:
 {samples}
@@ -148,7 +141,7 @@ def generate_growth_plan(
 - score는 60부터 100 사이 정수다.
 - search_keyword는 각 미션의 핵심 대상과 주제를 포함한 2~6어절이다.
 - 같은 search_keyword를 두 미션에서 재사용하지 않는다.
-- 댓글은 검색 결과의 실제 게시물 맥락을 확인한 뒤 사용자가 수정할 수 있는 자연스러운 초안이다.
+- 댓글 초안은 검색 결과의 실제 맥락을 확인한 뒤 사용자가 수정할 수 있는 자연스러운 문장으로 만든다.
 """.strip()
 
     response = client.responses.create(model=settings.OPENAI_MODEL, input=prompt)
