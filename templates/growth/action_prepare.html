@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block title %}성장 작업 준비 | SNSGROWUP{% endblock %}
 {% block content %}
+<style>
+  .reel-making-backdrop{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+  .reel-making-backdrop.is-active{display:flex}
+  .reel-making-backdrop.is-done{opacity:0;pointer-events:none;transition:opacity .28s ease}
+  .reel-making-modal{position:relative;width:min(430px,calc(100vw - 40px));padding:2px;border-radius:22px;overflow:hidden;box-shadow:0 24px 70px rgba(15,23,42,.24);background:#2563eb}
+  .reel-making-modal::before{content:"";position:absolute;inset:-55%;background:conic-gradient(from 0deg,transparent 0 19%,#93c5fd 26%,#fff 31%,#60a5fa 37%,transparent 45% 100%);animation:reelBorderSpin 1.55s linear infinite}
+  .reel-making-inner{position:relative;z-index:1;margin:2px;padding:28px 30px 26px;border-radius:19px;background:#fff;text-align:center}
+  .reel-making-icon{width:52px;height:52px;margin:0 auto 14px;border-radius:17px;display:grid;place-items:center;background:#eff6ff;color:#2563eb;font-size:24px;font-weight:900}
+  .reel-making-title{font-size:20px;font-weight:850;color:#111827;margin-bottom:7px}
+  .reel-making-copy{font-size:14px;color:#64748b;line-height:1.6;margin-bottom:19px}
+  .reel-making-percent{font-size:34px;font-weight:900;letter-spacing:-1px;color:#2563eb;margin-bottom:13px}
+  .reel-making-track{height:8px;border-radius:999px;background:#e8eef8;overflow:hidden}
+  .reel-making-track>span{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#2563eb,#60a5fa);transition:width .35s ease}
+  .reel-making-step{margin-top:12px;font-size:12px;color:#94a3b8}
+  @keyframes reelBorderSpin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.reel-making-modal::before{animation:none}}
+</style>
+
+<div class="reel-making-backdrop" id="reelMakingModal" role="status" aria-live="polite" aria-label="AI 뉴스 릴스 제작 진행 상태">
+  <div class="reel-making-modal">
+    <div class="reel-making-inner">
+      <div class="reel-making-icon">S</div>
+      <div class="reel-making-title">AI 뉴스 릴스를 제작하고 있습니다.</div>
+      <div class="reel-making-copy" id="reelMakingCopy">기사와 대표이미지를 분석하고 있습니다.</div>
+      <div class="reel-making-percent" id="reelMakingPercent">0%</div>
+      <div class="reel-making-track"><span id="reelMakingBar" style="width:0%"></span></div>
+      <div class="reel-making-step" id="reelMakingStep">콘텐츠 분석 · 예상 진행률</div>
+    </div>
+  </div>
+</div>
+
 <div class="growth-page">
   <section class="page-head compact-head">
     <div>
@@ -85,7 +116,7 @@
             {% if action.platform == 'facebook' %}
               <form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>
             {% elif action.platform == 'instagram' %}
-              {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_instagram_news_reel' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">AI 뉴스 릴스 제작</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
+              {% if item.representative_image %}<form class="reel-generation-form" method="post" action="{% url 'growth:generate_instagram_news_reel' action.pk item.pk %}" data-filename="SNSGROWUP_reel_{{ item.pk }}.mp4">{% csrf_token %}<button class="button primary" type="submit">AI 뉴스 릴스 제작</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
             {% endif %}
           {% elif action.action_type == 'story' %}
             {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 스토리 영상 만들기</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
@@ -101,5 +132,129 @@
 <script>
 document.querySelectorAll('.copy-comment').forEach(b => b.addEventListener('click', async () => { await navigator.clipboard.writeText(b.dataset.comment || ''); b.textContent = '복사됨'; }));
 document.querySelectorAll('.copy-reel-caption').forEach(b => b.addEventListener('click', async () => { const original = b.textContent; await navigator.clipboard.writeText(b.dataset.caption || ''); b.textContent = '복사됨 ✓'; setTimeout(() => b.textContent = original, 1400); }));
+
+(() => {
+  const modal = document.getElementById('reelMakingModal');
+  const percent = document.getElementById('reelMakingPercent');
+  const bar = document.getElementById('reelMakingBar');
+  const copy = document.getElementById('reelMakingCopy');
+  const step = document.getElementById('reelMakingStep');
+  let timer = null;
+  let startedAt = 0;
+  let visualPercent = 0;
+
+  const estimatedPercent = () => {
+    const elapsed = (Date.now() - startedAt) / 1000;
+    if (elapsed < 4) return elapsed * 4;                 // 0 → 16
+    if (elapsed < 14) return 16 + (elapsed - 4) * 2.8;  // 16 → 44
+    if (elapsed < 32) return 44 + (elapsed - 14) * 1.8; // 44 → 76
+    if (elapsed < 55) return 76 + (elapsed - 32) * .65; // 76 → 91
+    return Math.min(96, 91 + (elapsed - 55) * .12);
+  };
+
+  const paint = value => {
+    const safe = Math.max(0, Math.min(100, Math.round(value)));
+    percent.textContent = `${safe}%`;
+    bar.style.width = `${safe}%`;
+    if (safe < 18) {
+      copy.textContent = '기사와 대표이미지를 분석하고 있습니다.';
+      step.textContent = '콘텐츠 분석 · 예상 진행률';
+    } else if (safe < 45) {
+      copy.textContent = '한국어 뉴스 멘트와 음성을 만들고 있습니다.';
+      step.textContent = '뉴스 멘트 · TTS 생성 · 예상 진행률';
+    } else if (safe < 78) {
+      copy.textContent = '아나운서 제스처와 자막을 영상에 합성하고 있습니다.';
+      step.textContent = '아나운서 · 자막 합성 · 예상 진행률';
+    } else if (safe < 96) {
+      copy.textContent = 'Instagram 릴스용 MP4를 마무리하고 있습니다.';
+      step.textContent = '영상 인코딩 · 예상 진행률';
+    } else {
+      copy.textContent = '완성된 릴스 파일을 확인하고 있습니다.';
+      step.textContent = '마무리 확인';
+    }
+  };
+
+  const animate = () => {
+    visualPercent = Math.max(visualPercent, estimatedPercent());
+    paint(Math.min(96, visualPercent));
+    timer = window.setTimeout(animate, 250);
+  };
+
+  const show = () => {
+    startedAt = Date.now();
+    visualPercent = 0;
+    modal.classList.remove('is-done');
+    modal.classList.add('is-active');
+    paint(0);
+    animate();
+  };
+
+  const finish = () => {
+    if (timer) window.clearTimeout(timer);
+    paint(100);
+    copy.textContent = 'AI 뉴스 릴스 제작이 완료되었습니다.';
+    step.textContent = '완료';
+    window.setTimeout(() => {
+      modal.classList.add('is-done');
+      window.setTimeout(() => {
+        modal.classList.remove('is-active', 'is-done');
+      }, 320);
+    }, 650);
+  };
+
+  const fail = message => {
+    if (timer) window.clearTimeout(timer);
+    copy.textContent = message || '릴스 제작에 실패했습니다.';
+    step.textContent = '오류';
+    percent.textContent = '실패';
+    bar.style.width = '100%';
+    window.setTimeout(() => {
+      modal.classList.add('is-done');
+      window.setTimeout(() => modal.classList.remove('is-active', 'is-done'), 320);
+    }, 1800);
+  };
+
+  document.querySelectorAll('.reel-generation-form').forEach(form => {
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (form.dataset.busy === '1') return;
+      form.dataset.busy = '1';
+      const button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      show();
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          credentials: 'same-origin',
+          headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        if (!response.ok || !contentType.includes('video/mp4')) {
+          throw new Error('릴스 영상 생성 결과를 받지 못했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.');
+        }
+        const blob = await response.blob();
+        if (!blob || blob.size < 1024) throw new Error('생성된 릴스 파일이 비어 있습니다.');
+        finish();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = form.dataset.filename || 'SNSGROWUP_instagram_reel.mp4';
+        document.body.appendChild(link);
+        window.setTimeout(() => {
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+        }, 550);
+      } catch (error) {
+        fail(error.message);
+      } finally {
+        form.dataset.busy = '0';
+        if (button) button.disabled = false;
+      }
+    });
+  });
+})();
 </script>
 {% endblock %}
