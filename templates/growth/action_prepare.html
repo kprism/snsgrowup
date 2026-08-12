@@ -49,7 +49,29 @@
       {% for item in contents %}
       <article class="growth-content-pick">
         <div class="growth-content-thumb">{% if item.representative_image %}<img src="{{ item.representative_image.url }}" alt="">{% else %}<span>이미지 없음</span>{% endif %}</div>
-        <div class="growth-content-copy"><h3>{{ item.title }}</h3><p>{{ item.body|striptags|truncatechars:170 }}</p><small>{{ item.created_at|date:"Y.m.d H:i" }}</small></div>
+        <div class="growth-content-copy">
+          <h3>{{ item.title }}</h3>
+          <p>{{ item.body|striptags|truncatechars:170 }}</p>
+
+          {% if action.platform == 'instagram' and item.instagram_reel_caption %}
+          <div class="instagram-reel-copy-box">
+            <div class="instagram-reel-copy-head">
+              <strong>Instagram 릴스 문구 · 태그</strong>
+              <button
+                type="button"
+                class="button soft button-small copy-reel-caption"
+                data-caption="{{ item.instagram_reel_caption|escapejs }}"
+              >전체 복사</button>
+            </div>
+
+            <div class="instagram-reel-caption">
+              {{ item.instagram_reel_caption|linebreaksbr }}
+            </div>
+          </div>
+          {% endif %}
+
+          <small>{{ item.created_at|date:"Y.m.d H:i" }}</small>
+        </div>
         <div class="growth-content-actions">
           {% if action.action_type == 'post' %}
           <form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>
@@ -69,5 +91,17 @@
     <form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">이번 작업 건너뛰기</button></form>
   </div>
 </div>
-<script>document.querySelectorAll('.copy-comment').forEach(b=>b.addEventListener('click',async()=>{await navigator.clipboard.writeText(b.dataset.comment||'');b.textContent='복사됨';}));</script>
+<script>
+document.querySelectorAll('.copy-comment').forEach(b => b.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(b.dataset.comment || '');
+  b.textContent = '복사됨';
+}));
+
+document.querySelectorAll('.copy-reel-caption').forEach(b => b.addEventListener('click', async () => {
+  const original = b.textContent;
+  await navigator.clipboard.writeText(b.dataset.caption || '');
+  b.textContent = '복사됨 ✓';
+  setTimeout(() => b.textContent = original, 1400);
+}));
+</script>
 {% endblock %}

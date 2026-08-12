@@ -74,6 +74,80 @@ def _relevant_contents(user, action: GrowthAction, limit: int = 8):
     return (matched or [item for _score, _created, item in ranked])[:limit]
 
 
+
+def _instagram_reel_copy(content) -> dict:
+    """Build a concise Instagram Reel caption and article-specific hashtags."""
+    title = re.sub(r"\s+", " ", (content.title or "")).strip()
+    plain = re.sub(r"<[^>]+>", " ", content.body or "")
+    plain = re.sub(r"\s+", " ", plain).strip()
+
+    # 기사 본문 앞부분을 릴스 설명용으로 너무 길지 않게 정리한다.
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?。])\s+", plain)
+        if item.strip()
+    ]
+
+    summary_parts = []
+    summary_length = 0
+    for sentence in sentences:
+        if summary_length + len(sentence) > 260:
+            break
+        summary_parts.append(sentence)
+        summary_length += len(sentence)
+        if len(summary_parts) >= 2:
+            break
+
+    summary = " ".join(summary_parts).strip()
+    if not summary:
+        summary = plain[:220].rstrip()
+
+    # 제목과 본문에서 기사별 핵심어를 추출한다.
+    ignored = {
+        "관련", "대한", "통해", "이번", "오는", "위해", "밝혔다", "한다고",
+        "있다", "했다", "하는", "에서", "으로", "그리고", "기자", "경남도",
+        "창원시", "지난", "올해", "운영", "개최", "실시",
+    }
+
+    tokens = re.findall(r"[0-9A-Za-z가-힣]{2,}", f"{title} {plain[:800]}")
+    hashtags = []
+    seen = set()
+
+    for token in tokens:
+        clean = token.strip("_-")
+        if (
+            len(clean) < 2
+            or clean in ignored
+            or clean.isdigit()
+            or clean.lower() in seen
+        ):
+            continue
+
+        seen.add(clean.lower())
+        hashtags.append(f"#{clean}")
+
+        if len(hashtags) >= 7:
+            break
+
+    for fixed in ["#Reels", "#릴스"]:
+        if fixed.lower() not in {tag.lower() for tag in hashtags}:
+            hashtags.append(fixed)
+
+    hashtag_text = " ".join(hashtags[:9])
+
+    parts = [title]
+    if summary and summary != title:
+        parts += ["", summary]
+    parts += ["", hashtag_text]
+
+    caption = "\n".join(parts).strip()
+
+    return {
+        "caption": caption[:2100],
+        "hashtags": hashtag_text,
+    }
+
+
 def _account_for_action(user, action: GrowthAction):
     return (
         SocialAccount.objects.filter(user=user, is_active=True, platform__code=action.platform)
@@ -227,10 +301,19 @@ def prepare_action(request, pk):
     action = get_object_or_404(GrowthAction, pk=pk, owner=request.user)
     account = _account_for_action(request.user, action)
     profile_url = account.profile_url if account else ""
+
+    contents = _relevant_contents(request.user, action)
+
+    if action.platform == "instagram":
+        for item in contents:
+            reel_copy = _instagram_reel_copy(item)
+            item.instagram_reel_caption = reel_copy["caption"]
+            item.instagram_reel_hashtags = reel_copy["hashtags"]
+
     return render(request, "growth/action_prepare.html", {
         "action": action,
         "account": account,
-        "contents": _relevant_contents(request.user, action),
+        "contents": contents,
         "candidate_count_available": False,
         "search_links": {
             "posts": _platform_search_url(action.platform, action.keyword, profile_url, "posts"),
