@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Instagram 탐색 | SNSGROWUP{% endblock %}
+{% block content %}
+<div class="growth-page">
+  <section class="page-head compact-head">
+    <div>
+      <span class="eyebrow">INSTAGRAM DISCOVERY</span>
+      <h1>Instagram 게시물 · Reel 후보</h1>
+      <p>{{ action.keyword }} 키워드에서 실제 해시태그 미디어를 확인합니다.</p>
+    </div>
+    <a class="button soft" href="{% url 'growth:prepare_action' action.pk %}">성장 작업으로</a>
+  </section>
+
+  <section class="growth-section-card">
+    <div class="growth-section-head">
+      <h2>검색 기준</h2>
+      <p>Instagram 웹 검색창이 아니라 공식 API의 해시태그 미디어 결과를 사용합니다.</p>
+    </div>
+    <div class="growth-prepare-body">
+      <form method="get" class="growth-account-filter">
+        <label for="ig-hashtag">해시태그</label>
+        <input id="ig-hashtag" name="q" value="{{ hashtag }}" placeholder="예: 고수온">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <button class="button primary" type="submit">다시 찾기</button>
+      </form>
+      {% if hashtag_candidates %}
+      <div class="growth-search-buttons">
+        {% for tag in hashtag_candidates %}
+        <a class="button soft" href="?q={{ tag|urlencode }}&mode={{ mode }}">#{{ tag }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="growth-search-buttons" style="margin-top:12px">
+        <a class="button {% if mode == 'all' %}primary{% else %}soft{% endif %}" href="?q={{ hashtag|urlencode }}&mode=all">전체</a>
+        <a class="button {% if mode == 'posts' %}primary{% else %}soft{% endif %}" href="?q={{ hashtag|urlencode }}&mode=posts">게시물</a>
+        <a class="button {% if mode == 'reels' %}primary{% else %}soft{% endif %}" href="?q={{ hashtag|urlencode }}&mode=reels">Reels</a>
+      </div>
+    </div>
+  </section>
+
+  {% if error %}
+  <div class="notice notice-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="growth-section-card growth-related-section">
+    <div class="growth-section-head">
+      <h2>#{{ hashtag }} 결과</h2>
+      <p>정렬 순위를 임의로 만들지 않고 Instagram API가 반환한 최근 미디어 순서대로 보여줍니다.</p>
+    </div>
+    {% if media %}
+    <div class="growth-content-picks">
+      {% for item in media %}
+      <article class="growth-content-pick">
+        <div class="growth-content-thumb">
+          {% if item.display_image %}<img src="{{ item.display_image }}" alt="">{% else %}<span>{% if item.is_reel %}REEL{% else %}POST{% endif %}</span>{% endif %}
+        </div>
+        <div class="growth-content-copy">
+          <div class="growth-action-top"><span class="status-chip">{% if item.is_reel %}Reel{% else %}게시물{% endif %}</span>{% if item.username %}<span class="growth-action-type">@{{ item.username }}</span>{% endif %}</div>
+          <p>{{ item.caption|default:"설명 없음"|truncatechars:260 }}</p>
+          {% if item.timestamp %}<small>{{ item.timestamp }}</small>{% endif %}
+        </div>
+        <div class="growth-content-actions">
+          {% if item.permalink %}<a class="button primary" target="_blank" rel="noopener" href="{{ item.permalink }}">Instagram에서 열기</a>{% endif %}
+          {% if action.suggested_comment %}<button type="button" class="button soft copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">추천 댓글 복사</button>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="growth-empty">
+      <strong>표시할 미디어가 없습니다</strong>
+      <span>다른 해시태그 후보를 선택하거나 검색어를 짧게 바꿔보세요.</span>
+    </div>
+    {% endif %}
+  </section>
+</div>
+<script>
+document.querySelectorAll('.copy-comment').forEach(b => b.addEventListener('click', async () => {
+  const original = b.textContent;
+  await navigator.clipboard.writeText(b.dataset.comment || '');
+  b.textContent = '복사됨 ✓';
+  setTimeout(() => b.textContent = original, 1200);
+}));
+</script>
+{% endblock %}
