@@ -227,6 +227,32 @@ def _configured_anchor_video() -> Path | None:
     return candidate if candidate.exists() else None
 
 
+def _cpu_anchor_filter() -> str:
+    """Animate the fallback still anchor using FFmpeg only.
+
+    This deliberately avoids GPU/avatar APIs. It creates subtle broadcast-style
+    micro motion: breathing/sway, tiny head/body rotation and two brief gesture
+    pulses. Because the source is a single image this is not true articulated
+    hand animation or phoneme lip-sync; it is a low-cost motion illusion intended
+    for a small lower-right news anchor.
+    """
+    return (
+        "[3:v]format=rgba,scale=410:-1:force_original_aspect_ratio=decrease,"
+        "rotate='0.006*sin(2*PI*t/3.8)':ow=rotw(iw):oh=roth(ih):c=none,"
+        "setpts=PTS-STARTPTS[anchor]"
+    )
+
+
+def _cpu_anchor_overlay() -> str:
+    """Dynamic lower-right placement for the CPU fallback presenter."""
+    return (
+        "[v2][anchor]overlay="
+        "x='W-w-24+4*sin(2*PI*t/3.1)+9*exp(-pow((mod(t,4.4)-1.55)/0.30,2))':"
+        "y='H-h-30+5*sin(2*PI*t/2.7)-5*exp(-pow((mod(t,4.4)-1.55)/0.34,2))':"
+        "format=auto[v]"
+    )
+
+
 def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
     """Create a 10-second vertical news Short with TTS, title, captions and an anchor."""
     if not content.representative_image:
@@ -289,9 +315,12 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
                     f"[3:v]fps=30,scale=430:-1:force_original_aspect_ratio=decrease,"
                     f"chromakey=0x00FF00:{similarity}:{blend},format=rgba[anchor]"
                 )
+            anchor_overlay = "[v2][anchor]overlay=W-w-24:H-h-30:format=auto[v]"
         else:
+            # Free mode: animate the existing synthetic still using CPU-only FFmpeg.
             command += ["-framerate", "30", "-loop", "1", "-i", str(anchor_path)]
-            anchor_filter = "[3:v]format=rgba[anchor]"
+            anchor_filter = _cpu_anchor_filter()
+            anchor_overlay = _cpu_anchor_overlay()
 
         command += ["-i", str(speech_path)]
 
@@ -302,7 +331,7 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
             f"{anchor_filter};"
             "[bg][title]overlay=0:0:format=auto[v1];"
             "[v1][caption]overlay=26:1110:format=auto[v2];"
-            "[v2][anchor]overlay=W-w-24:H-h-30:format=auto[v]"
+            f"{anchor_overlay}"
         )
 
         command += [
