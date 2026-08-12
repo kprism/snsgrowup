@@ -19,7 +19,7 @@
   {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
   {% if action.platform == 'instagram' %}
-    <div class="notice">Instagram 성장 작업입니다. 게시물·Reels 후보 탐색과 릴스용 문구·태그 준비를 지원합니다.</div>
+    <div class="notice">Instagram 성장 작업입니다. 추천 콘텐츠에서 5초 릴스 MP4를 만들고, 함께 생성된 릴스 문구·태그를 복사해 게시에 사용할 수 있습니다.</div>
   {% endif %}
 
   <section class="growth-prepare-grid">
@@ -36,7 +36,13 @@
     <article class="growth-section-card">
       <div class="growth-section-head"><h2>{{ account.platform.name|default:action.platform }} 실행 도구</h2><p>작업 종류에 맞는 화면만 엽니다.</p></div>
       <div class="growth-prepare-body">
-        {% if action.platform == 'instagram' %}
+        {% if action.platform == 'instagram' and action.action_type == 'post' %}
+          <p class="growth-help">아래 추천 콘텐츠 중 하나를 골라 <strong>5초 릴스 제작</strong>을 누르세요. 대표이미지로 세로형 MP4를 만들고 즉시 다운로드합니다.</p>
+          <div class="growth-search-buttons">
+            <a class="button soft" href="{% url 'growth:instagram_discover' action.pk %}?mode=reels">참고 Reel 탐색</a>
+            {% if account %}<a class="button soft" target="_blank" rel="noopener" href="{{ search_links.profile }}">내 Instagram 열기</a>{% endif %}
+          </div>
+        {% elif action.platform == 'instagram' %}
           <p class="growth-help">Instagram 웹 검색은 계정 후보 위주로 보일 수 있어, 게시물·Reels는 공식 API의 해시태그 미디어 탐색으로 SNSGROWUP 안에서 확인합니다.</p>
           <div class="growth-search-buttons">
             <a class="button primary" href="{% url 'growth:instagram_discover' action.pk %}?mode=all">게시물 · Reel 후보 보기</a>
@@ -76,7 +82,11 @@
         </div>
         <div class="growth-content-actions">
           {% if action.action_type == 'post' %}
-            {% if action.platform == 'facebook' %}<form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>{% elif action.platform == 'instagram' %}<a class="button primary" href="{% url 'growth:instagram_discover' action.pk %}?mode=reels">릴스 후보 확인</a>{% endif %}
+            {% if action.platform == 'facebook' %}
+              <form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>
+            {% elif action.platform == 'instagram' %}
+              {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 릴스 제작</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
+            {% endif %}
           {% elif action.action_type == 'story' %}
             {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 스토리 영상 만들기</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
           {% else %}<a class="button soft" href="{% url 'contents:content_update' item.pk %}">내 콘텐츠 확인</a>{% endif %}
