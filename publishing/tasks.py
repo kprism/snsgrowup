@@ -185,6 +185,40 @@ def publish_facebook_task(self, publishing_task_id: int, queue_id: int | None = 
         return _fail_task(task, queue_id, str(exc))
 
 
+def _instagram_image_preflight(image_url: str) -> tuple[bool, str]:
+    """Verify that Meta can receive a real public image URL before publishing."""
+    try:
+        response = requests.get(
+            image_url,
+            timeout=20,
+            allow_redirects=True,
+            headers={"User-Agent": "SNSGROWUP-Instagram-Preflight/1.0"},
+        )
+    except requests.RequestException as exc:
+        return False, f"Instagram 대표이미지 공개 URL에 연결할 수 없습니다: {exc}"
+
+    content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+
+    if response.status_code != 200:
+        return False, (
+            f"Instagram 대표이미지 URL이 외부에서 열리지 않습니다. "
+            f"HTTP {response.status_code}. Codespaces 포트 공개 상태 또는 PUBLIC_BASE_URL을 확인해 주세요."
+        )
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if content_type not in allowed_types:
+        return False, (
+            f"Instagram 대표이미지 URL이 실제 이미지가 아닙니다. "
+            f"응답 형식: {content_type or '알 수 없음'}. "
+            "로그인 화면이나 HTML 오류 페이지가 반환되는지 확인해 주세요."
+        )
+
+    if len(response.content) < 1024:
+        return False, "Instagram 대표이미지 파일 크기가 비정상적으로 작습니다."
+
+    return True, ""
+
+
 @shared_task(bind=True)
 def publish_instagram_task(self, publishing_task_id: int, queue_id: int | None = None):
     task = PublishingTask.objects.select_related(
@@ -202,6 +236,10 @@ def publish_instagram_task(self, publishing_task_id: int, queue_id: int | None =
     image_url = str(payload.get("image") or "").strip()
     if not image_url.startswith("https://"):
         return _fail_task(task, queue_id, "Instagram 이미지는 Meta가 접근할 수 있는 공개 HTTPS URL이어야 합니다. PUBLIC_BASE_URL 또는 Codespaces 포트 공개 설정을 확인해 주세요.")
+
+    image_ok, image_error = _instagram_image_preflight(image_url)
+    if not image_ok:
+        return _fail_task(task, queue_id, image_error)
 
     _start_task(task)
     caption = _final_message(payload)
