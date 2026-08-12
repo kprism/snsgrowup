@@ -65,7 +65,6 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_l
 
 
 def _polite_fallback(text: str) -> str:
-    """Best-effort fallback when AI rewriting is unavailable."""
     compact = re.sub(r"\s+", " ", text.strip())[:90]
     replacements = (
         (r"연다\.$", "엽니다."),
@@ -147,11 +146,10 @@ def _speech_mp3(*, text: str, output_path: Path) -> None:
 def _image_jpeg(source_path: Path, output_path: Path) -> None:
     with Image.open(source_path) as source:
         image = source.convert("RGB")
-        image.save(output_path, format="JPEG", quality=94, optimize=True)
+        image.save(output_path, format="JPEG", quality=97, optimize=True, subsampling=0)
 
 
 def _make_title_bar(*, title: str, output_path: Path) -> None:
-    # Title has its own fixed safe zone, so it never overlaps the anchor's face.
     canvas = Image.new("RGBA", (1080, 280), BLUE)
     draw = ImageDraw.Draw(canvas)
     label_font = _font(30)
@@ -166,7 +164,6 @@ def _make_title_bar(*, title: str, output_path: Path) -> None:
 
 
 def _make_caption(*, script: str, output_path: Path) -> None:
-    # Left-side caption safe zone leaves the lower-right anchor unobstructed.
     canvas = Image.new("RGBA", (700, 390), TRANSPARENT)
     draw = ImageDraw.Draw(canvas)
     font = _font(43)
@@ -191,7 +188,11 @@ def _make_caption(*, script: str, output_path: Path) -> None:
 
 
 def _make_anchor_card(*, output_path: Path) -> None:
-    """Fallback still anchor used when no transparent/green-screen motion clip is configured."""
+    """Temporary fallback presenter.
+
+    It is intentionally kept completely still. Once a real green-screen or alpha
+    presenter video is configured, that video replaces this fallback automatically.
+    """
     source_path = output_path.with_suffix(".source.jpg")
     write_anchor_sample(source_path)
     with Image.open(source_path) as source:
@@ -200,8 +201,7 @@ def _make_anchor_card(*, output_path: Path) -> None:
     mask = Image.new("L", anchor.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, anchor.width - 1, anchor.height - 1), radius=28, fill=255)
     rounded.paste(anchor.convert("RGBA"), (0, 0), mask)
-    border = ImageDraw.Draw(rounded)
-    border.rounded_rectangle(
+    ImageDraw.Draw(rounded).rounded_rectangle(
         (1, 1, anchor.width - 2, anchor.height - 2),
         radius=28,
         outline=(255, 255, 255, 230),
@@ -212,12 +212,6 @@ def _make_anchor_card(*, output_path: Path) -> None:
 
 
 def _configured_anchor_video() -> Path | None:
-    """Optional CPU-only anchor motion clip.
-
-    Put a short green-screen or alpha-channel anchor clip in Codespaces and set
-    SHORTS_ANCHOR_VIDEO_PATH. FFmpeg loops it and composites the cutout over the
-    article background. This does not require a GPU.
-    """
     raw = os.getenv("SHORTS_ANCHOR_VIDEO_PATH", "").strip()
     if not raw:
         return None
@@ -227,34 +221,8 @@ def _configured_anchor_video() -> Path | None:
     return candidate if candidate.exists() else None
 
 
-def _cpu_anchor_filter() -> str:
-    """Animate the fallback still anchor using FFmpeg only.
-
-    This deliberately avoids GPU/avatar APIs. It creates subtle broadcast-style
-    micro motion: breathing/sway, tiny head/body rotation and two brief gesture
-    pulses. Because the source is a single image this is not true articulated
-    hand animation or phoneme lip-sync; it is a low-cost motion illusion intended
-    for a small lower-right news anchor.
-    """
-    return (
-        "[3:v]format=rgba,scale=410:-1:force_original_aspect_ratio=decrease,"
-        "rotate='0.006*sin(2*PI*t/3.8)':ow=rotw(iw):oh=roth(ih):c=none,"
-        "setpts=PTS-STARTPTS[anchor]"
-    )
-
-
-def _cpu_anchor_overlay() -> str:
-    """Dynamic lower-right placement for the CPU fallback presenter."""
-    return (
-        "[v2][anchor]overlay="
-        "x='W-w-24+4*sin(2*PI*t/3.1)+9*exp(-pow((mod(t,4.4)-1.55)/0.30,2))':"
-        "y='H-h-30+5*sin(2*PI*t/2.7)-5*exp(-pow((mod(t,4.4)-1.55)/0.34,2))':"
-        "format=auto[v]"
-    )
-
-
 def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
-    """Create a 10-second vertical news Short with TTS, title, captions and an anchor."""
+    """Create a static-background 10-second vertical news Short."""
     if not content.representative_image:
         raise ShortsGenerationError("YouTube 쇼츠 생성에는 대표이미지가 필요합니다.")
 
@@ -283,15 +251,11 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
         if not anchor_video_path:
             _make_anchor_card(output_path=anchor_path)
 
-        # Strong but smooth Ken Burns movement keeps the article image alive.
+        # Keep the article image completely still. Lanczos scaling preserves detail
+        # better than the previous zoompan pipeline and avoids visible frame motion.
         background_filter = (
-            "scale=1320:2350:force_original_aspect_ratio=increase,"
-            "crop=1320:2350,"
-            "zoompan=z='min(zoom+0.0009,1.22)':"
-            "x='iw/2-(iw/zoom/2)+sin(on/22)*22':"
-            "y='ih/2-(ih/zoom/2)+cos(on/29)*17':"
-            "d=1:s=1080x1920:fps=30,"
-            "format=yuv420p"
+            "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
+            "crop=1080:1920,setsar=1,format=yuv420p"
         )
 
         command = [
@@ -302,25 +266,20 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
         ]
 
         if anchor_video_path:
-            # A short presenter loop can contain natural mouth, head and hand motion.
-            # Green screen is removed by chromakey; alpha-channel WebM/MOV can opt out.
             command += ["-stream_loop", "-1", "-i", str(anchor_video_path)]
             anchor_has_alpha = os.getenv("SHORTS_ANCHOR_HAS_ALPHA", "0").strip().lower() in {"1", "true", "yes", "on"}
             if anchor_has_alpha:
-                anchor_filter = "[3:v]fps=30,scale=430:-1:force_original_aspect_ratio=decrease,format=rgba[anchor]"
+                anchor_filter = "[3:v]fps=30,scale=430:-1:flags=lanczos:force_original_aspect_ratio=decrease,format=rgba[anchor]"
             else:
                 similarity = os.getenv("SHORTS_ANCHOR_CHROMA_SIMILARITY", "0.22").strip() or "0.22"
                 blend = os.getenv("SHORTS_ANCHOR_CHROMA_BLEND", "0.08").strip() or "0.08"
                 anchor_filter = (
-                    f"[3:v]fps=30,scale=430:-1:force_original_aspect_ratio=decrease,"
+                    f"[3:v]fps=30,scale=430:-1:flags=lanczos:force_original_aspect_ratio=decrease,"
                     f"chromakey=0x00FF00:{similarity}:{blend},format=rgba[anchor]"
                 )
-            anchor_overlay = "[v2][anchor]overlay=W-w-24:H-h-30:format=auto[v]"
         else:
-            # Free mode: animate the existing synthetic still using CPU-only FFmpeg.
             command += ["-framerate", "30", "-loop", "1", "-i", str(anchor_path)]
-            anchor_filter = _cpu_anchor_filter()
-            anchor_overlay = _cpu_anchor_overlay()
+            anchor_filter = "[3:v]format=rgba[anchor]"
 
         command += ["-i", str(speech_path)]
 
@@ -331,20 +290,21 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
             f"{anchor_filter};"
             "[bg][title]overlay=0:0:format=auto[v1];"
             "[v1][caption]overlay=26:1110:format=auto[v2];"
-            f"{anchor_overlay}"
+            "[v2][anchor]overlay=W-w-24:H-h-30:format=auto[v]"
         )
 
         command += [
             "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "4:a:0",
             "-t", "10",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "160k",
             "-af", "apad=pad_dur=10",
             "-movflags", "+faststart",
             str(output_path),
         ]
-        process = subprocess.run(command, capture_output=True, text=True, timeout=210)
+        process = subprocess.run(command, capture_output=True, text=True, timeout=240)
         if process.returncode != 0 or not output_path.exists():
             error = (process.stderr or process.stdout or "ffmpeg 실패")[-2600:]
             raise ShortsGenerationError(f"쇼츠 영상 생성 실패: {error}")
