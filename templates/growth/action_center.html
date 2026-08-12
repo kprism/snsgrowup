@@ -4,7 +4,7 @@
 {% block content %}
 <div class="growth-page">
 <section class="page-head compact-head">
-  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>등록한 SNS 채널별로 AI가 서로 다른 검색키워드와 수동 실행 미션을 만듭니다.</p></div>
+  <div><span class="eyebrow">GROWTH ACTIONS</span><h1>오늘의 성장 액션</h1><p>등록한 SNS 채널별로 서로 다른 성장 알고리즘과 실행 미션을 적용합니다.</p></div>
 </section>
 {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
@@ -20,7 +20,17 @@
 </section>
 
 <section class="panel compact-panel growth-generator">
-  <div class="panel-head"><div><h2>AI 성장 미션 만들기</h2><p>채널의 최근 콘텐츠를 참고하되, 각 미션에 맞는 구체적인 검색키워드를 따로 생성합니다.</p></div></div>
+  <div class="panel-head"><div><h2>AI 성장 미션 만들기</h2>
+    {% if selected_platform == 'instagram' %}
+      <p>Instagram은 Reels·저장·공유·비팔로워 도달과 관련 계정 탐색 중심으로 별도 분석합니다.</p>
+    {% elif selected_platform == 'facebook' %}
+      <p>Facebook은 페이지·그룹·게시물·관계 형성 중심으로 미션을 만듭니다.</p>
+    {% elif selected_platform == 'youtube' %}
+      <p>YouTube는 Shorts·시청지속시간·댓글·구독 전환 중심으로 미션을 만듭니다.</p>
+    {% elif selected_platform == 'threads' %}
+      <p>Threads는 Hook·연속 게시·답글 대화와 주제 참여 중심으로 미션을 만듭니다.</p>
+    {% else %}<p>채널에 맞는 성장 전략을 생성합니다.</p>{% endif %}
+  </div></div>
   <div class="growth-generator-body">
     <form method="get" class="growth-account-filter">
       <label for="growth-account">성장시킬 SNS 채널</label>
@@ -31,8 +41,13 @@
     <form method="post" action="{% url 'growth:generate_actions' %}" class="growth-generate-only-form">{% csrf_token %}
       <input type="hidden" name="account_id" value="{{ selected_account.pk }}">
       <div class="growth-generate-copy">
-        <strong>미션마다 검색어를 따로 만듭니다</strong>
-        <span>예: 수족구 댓글 미션은 ‘경남 수족구병 어린이집’, 기관 팔로우 미션은 ‘창원 보건소 농업기술센터’처럼 생성됩니다.</span>
+        {% if selected_platform == 'instagram' %}
+          <strong>Instagram 전용 성장 미션을 만듭니다</strong>
+          <span>관련 키워드의 상위 게시물·계정 후보를 직접 확인하고, 방문·좋아요·댓글·팔로우는 사용자가 Instagram에서 실행합니다. SNSGROWUP은 검색어, 우선순위와 댓글 초안을 준비합니다.</span>
+        {% else %}
+          <strong>미션마다 검색어를 따로 만듭니다</strong>
+          <span>각 플랫폼에서 실제로 실행할 수 있는 작업에 맞춰 검색어와 추천 행동을 생성합니다.</span>
+        {% endif %}
       </div>
       <button class="button primary" type="submit">{{ selected_account.platform.name }} AI 미션 생성</button>
     </form>
@@ -46,18 +61,19 @@
 <section class="growth-workspace">
   <div class="growth-column">
     <section class="growth-section-card">
-      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 추천 작업</h2><p>우선순위가 높은 미션부터 실행하세요.</p></div>
+      <div class="growth-section-head"><h2>{{ selected_account.platform.name }} 추천 작업</h2>
+      {% if selected_platform == 'instagram' %}<p>관련성 높은 주제부터 확인하세요. 자동 좋아요·자동 댓글·자동 팔로우는 실행하지 않습니다.</p>{% else %}<p>우선순위가 높은 미션부터 실행하세요.</p>{% endif %}</div>
       {% if actions %}<div class="growth-action-stack">
       {% for action in actions %}
         <article class="growth-action-card">
           <div class="growth-action-top"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span class="growth-action-type">{{ action.get_action_type_display }}</span><span class="growth-score">{{ action.priority_score }}점</span></div>
           <h3>{{ action.title }}</h3>
-          <div class="growth-search-keyword"><span>미션 검색키워드</span><strong>{{ action.keyword }}</strong></div>
+          <div class="growth-search-keyword"><span>{% if selected_platform == 'instagram' %}Instagram 탐색 키워드{% else %}미션 검색키워드{% endif %}</span><strong>{{ action.keyword }}</strong></div>
           <p>{{ action.recommendation_reason|default:"AI 추천 성장 작업" }}</p>
-          {% if action.suggested_comment %}<div class="growth-comment"><strong>추천 댓글</strong><span>{{ action.suggested_comment }}</span><button type="button" class="button soft button-small copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">복사</button></div>{% endif %}
-          <div class="growth-card-actions"><form method="post" action="{% url 'growth:start_action' action.pk %}" target="_blank">{% csrf_token %}<button class="button primary" type="submit">{{ selected_account.platform.name }}에서 실행</button></form><form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">완료</button></form><form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">건너뛰기</button></form></div>
+          {% if action.suggested_comment %}<div class="growth-comment"><strong>AI 추천 댓글 초안</strong><span>{{ action.suggested_comment }}</span><button type="button" class="button soft button-small copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">복사</button></div>{% endif %}
+          <div class="growth-card-actions"><form method="post" action="{% url 'growth:start_action' action.pk %}" target="_blank">{% csrf_token %}<button class="button primary" type="submit">{% if selected_platform == 'instagram' %}후보 확인·실행 준비{% else %}{{ selected_account.platform.name }}에서 실행{% endif %}</button></form><form method="post" action="{% url 'growth:complete_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">완료</button></form><form method="post" action="{% url 'growth:skip_action' action.pk %}">{% csrf_token %}<button class="button soft" type="submit">건너뛰기</button></form></div>
         </article>
-      {% endfor %}</div>{% else %}<div class="growth-empty"><strong>{{ selected_account.platform.name }} 할 일이 0개입니다</strong><span>AI 미션 생성을 누르면 미션별 검색키워드와 작업이 만들어집니다.</span></div>{% endif %}
+      {% endfor %}</div>{% else %}<div class="growth-empty"><strong>{{ selected_account.platform.name }} 할 일이 0개입니다</strong><span>AI 미션 생성을 누르면 해당 플랫폼 전용 성장 미션이 만들어집니다.</span></div>{% endif %}
     </section>
   </div>
 
