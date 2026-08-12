@@ -277,16 +277,16 @@ def _stitch_anchor_videos(
     target_duration: float,
     output_path: Path,
 ) -> None:
-    """Join gesture clips once each with a subtle crossfade.
+    """Join presenter gesture clips in sequence without replaying the same clip.
 
-    Clips do not immediately repeat. Enough consecutive gesture variants are
-    selected to cover the TTS duration. The last frame is held only when every
-    available gesture clip is still shorter than the requested duration.
+    Every source clip is first normalized to the same CFR/resolution/codec.
+    This deliberately avoids FFmpeg xfade because chained xfade filters proved
+    unstable with generated presenter clips that contain inconsistent timing
+    metadata.
     """
     if not candidates:
         raise ShortsGenerationError("연결할 앵커 제스처 영상이 없습니다.")
 
-    transition = 0.18
     start_index = (max(int(task_id), 1) - 1) % len(candidates)
 
     ordered = [
@@ -295,110 +295,149 @@ def _stitch_anchor_videos(
     ]
 
     selected: list[Path] = []
-    durations: list[float] = []
     covered = 0.0
 
+    # Use each gesture at most once for this Short.
     for path in ordered:
         duration = _media_duration(path)
         selected.append(path)
-        durations.append(duration)
-
-        if len(selected) == 1:
-            covered = duration
-        else:
-            covered += max(duration - transition, 0.1)
+        covered += duration
 
         if covered >= target_duration:
             break
 
-    command = ["ffmpeg", "-y"]
+    work_dir = output_path.parent / f"{output_path.stem}-parts"
+    work_dir.mkdir(parents=True, exist_ok=True)
 
-    for path in selected:
-        command += ["-i", str(path)]
+    normalized: list[Path] = []
 
-    filters: list[str] = []
+    try:
+        # -----------------------------------------------------
+        # 1. Normalize every AI-generated clip.
+        # -----------------------------------------------------
+        for index, source in enumerate(selected):
+            normalized_path = work_dir / f"gesture-{index:02d}.mp4"
 
-    # DeeVid clips may not always have exactly identical dimensions.
-    # Normalize every clip before xfade.
-    for index in range(len(selected)):
-        filters.append(
-            f"[{index}:v]"
-            "fps=30,"
-            "scale=594:1002:force_original_aspect_ratio=decrease:flags=lanczos,"
-            "pad=594:1002:(ow-iw)/2:(oh-ih)/2:color=0x00FF00,"
-            "setsar=1,settb=AVTB,setpts=N/(30*TB),"
-            "format=yuv420p"
-            f"[a{index}]"
-        )
+            command = [
+                "ffmpeg",
+                "-y",
+                "-i", str(source),
 
-    if len(selected) == 1:
-        current = "a0"
-    else:
-        current = "a0"
-        timeline = durations[0]
+                "-an",
 
-        for index in range(1, len(selected)):
-            offset = max(timeline - transition, 0.0)
-            out = f"x{index}"
+                "-vf",
+                (
+                    "fps=30,"
+                    "scale=594:1002:"
+                    "force_original_aspect_ratio=decrease:"
+                    "flags=lanczos,"
+                    "pad=594:1002:"
+                    "(ow-iw)/2:(oh-ih)/2:"
+                    "color=0x00FF00,"
+                    "setsar=1,"
+                    "format=yuv420p"
+                ),
 
-            raw_out = f"xfraw{index}"
+                "-r", "30",
+                "-vsync", "cfr",
 
-            filters.append(
-                f"[{current}][a{index}]"
-                f"xfade=transition=fade:duration={transition:.3f}:"
-                f"offset={offset:.3f}"
-                f"[{raw_out}]"
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "18",
+                "-pix_fmt", "yuv420p",
+
+                "-movflags", "+faststart",
+
+                str(normalized_path),
+            ]
+
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=180,
             )
 
-            # xfade output can lose its declared frame-rate metadata.
-            # Normalize it again before feeding it into another xfade.
-            filters.append(
-                f"[{raw_out}]"
+            if process.returncode != 0 or not normalized_path.exists():
+                raise ShortsGenerationError(
+                    "앵커 제스처 영상 정규화에 실패했습니다: "
+                    + process.stderr[-1200:]
+                )
+
+            normalized.append(normalized_path)
+
+        # -----------------------------------------------------
+        # 2. Build concat manifest.
+        # -----------------------------------------------------
+        concat_file = work_dir / "concat.txt"
+
+        concat_file.write_text(
+            "".join(
+                f"file '{path.resolve()}'\n"
+                for path in normalized
+            ),
+            encoding="utf-8",
+        )
+
+        # -----------------------------------------------------
+        # 3. Concatenate normalized clips.
+        #
+        # No xfade, no stream_loop.
+        # If selected clips are slightly shorter than narration,
+        # tpad freezes only the final pose.
+        # -----------------------------------------------------
+        command = [
+            "ffmpeg",
+            "-y",
+
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+
+            "-an",
+
+            "-vf",
+            (
                 "fps=30,"
-                "settb=AVTB,"
-                "setpts=N/(30*TB),"
+                f"tpad=stop_mode=clone:stop_duration={target_duration:.3f},"
+                f"trim=duration={target_duration:.3f},"
+                "setpts=PTS-STARTPTS,"
                 "format=yuv420p"
-                f"[{out}]"
+            ),
+
+            "-t", f"{target_duration:.3f}",
+
+            "-r", "30",
+            "-vsync", "cfr",
+
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
+
+            "-movflags", "+faststart",
+
+            str(output_path),
+        ]
+
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+
+        if process.returncode != 0 or not output_path.exists():
+            raise ShortsGenerationError(
+                "앵커 제스처 영상 연결에 실패했습니다: "
+                + process.stderr[-1200:]
             )
 
-            current = out
-            timeline += durations[index] - transition
-
-    # Never restart the first clip. If all gesture clips are exhausted,
-    # hold the final pose for the tiny remaining tail instead.
-    filters.append(
-        f"[{current}]"
-        f"tpad=stop_mode=clone:stop_duration={target_duration:.3f},"
-        f"trim=duration={target_duration:.3f},"
-        "setpts=PTS-STARTPTS"
-        "[anchorout]"
-    )
-
-    command += [
-        "-filter_complex", ";".join(filters),
-        "-map", "[anchorout]",
-        "-an",
-        "-t", f"{target_duration:.3f}",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        str(output_path),
-    ]
-
-    process = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-
-    if process.returncode != 0 or not output_path.exists():
-        raise ShortsGenerationError(
-            "앵커 제스처 영상 연결에 실패했습니다: "
-            + process.stderr[-1200:]
-        )
+    finally:
+        # Temporary normalized fragments are not needed after the
+        # completed anchor sequence has been written.
+        import shutil
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
