@@ -1,15 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Facebook 게시 결과 | SNSGROWUP{% endblock %}
+{% block title %}SNS 게시 결과 | SNSGROWUP{% endblock %}
 {% block content %}
+<style>
+  .publish-making-backdrop{
+    position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;
+    background:rgba(15,23,42,.22);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  }
+  .publish-making-backdrop.is-done{opacity:0;pointer-events:none;transition:opacity .28s ease}
+  .publish-making-modal{
+    position:relative;width:min(430px,calc(100vw - 40px));padding:2px;border-radius:22px;overflow:hidden;
+    box-shadow:0 24px 70px rgba(15,23,42,.24);background:#2563eb;
+  }
+  .publish-making-modal::before{
+    content:"";position:absolute;inset:-55%;
+    background:conic-gradient(from 0deg,transparent 0 19%,#93c5fd 26%,#fff 31%,#60a5fa 37%,transparent 45% 100%);
+    animation:publishBorderSpin 1.55s linear infinite;
+  }
+  .publish-making-inner{
+    position:relative;z-index:1;margin:2px;padding:28px 30px 26px;border-radius:19px;background:#fff;text-align:center;
+  }
+  .publish-making-icon{
+    width:52px;height:52px;margin:0 auto 14px;border-radius:17px;display:grid;place-items:center;
+    background:#eff6ff;color:#2563eb;font-size:24px;font-weight:900;
+  }
+  .publish-making-title{font-size:20px;font-weight:850;color:#111827;margin-bottom:7px}
+  .publish-making-copy{font-size:14px;color:#64748b;line-height:1.6;margin-bottom:19px}
+  .publish-making-percent{font-size:34px;font-weight:900;letter-spacing:-1px;color:#2563eb;margin-bottom:13px}
+  .publish-making-track{height:8px;border-radius:999px;background:#e8eef8;overflow:hidden}
+  .publish-making-track>span{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#2563eb,#60a5fa);transition:width .35s ease}
+  .publish-making-step{margin-top:12px;font-size:12px;color:#94a3b8}
+  @keyframes publishBorderSpin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.publish-making-modal::before{animation:none}}
+</style>
+
 <section class="page-head compact-head">
-  <div><span class="eyebrow">FACEBOOK PUBLISH</span><h1>Facebook 게시</h1><p>게시 요청을 처리하고 있습니다. 완료되면 결과가 자동으로 표시됩니다.</p></div>
+  <div><span class="eyebrow">SNS PUBLISH</span><h1>SNS 게시</h1><p>콘텐츠 제작과 채널 발행을 처리하고 있습니다. 완료되면 결과가 자동으로 표시됩니다.</p></div>
   <a class="button soft" href="{% url 'contents:content_list' %}">콘텐츠로 돌아가기</a>
 </section>
 
 {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'warning' or message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
+<div class="publish-making-backdrop" id="publishMakingModal" role="status" aria-live="polite" aria-label="콘텐츠 제작 진행 상태">
+  <div class="publish-making-modal">
+    <div class="publish-making-inner">
+      <div class="publish-making-icon">S</div>
+      <div class="publish-making-title">콘텐츠를 제작하고 있습니다.</div>
+      <div class="publish-making-copy" id="makingCopy">선택한 채널에 맞게 콘텐츠를 준비하고 있습니다.</div>
+      <div class="publish-making-percent" id="makingPercent">0%</div>
+      <div class="publish-making-track"><span id="makingBar"></span></div>
+      <div class="publish-making-step" id="makingStep">작업을 준비하고 있습니다.</div>
+    </div>
+  </div>
+</div>
+
 <section class="panel compact-panel" id="publishResult" data-status-url="{% url 'publishing:publish_status' batch.pk %}">
-  <div class="panel-head"><div><h2 id="publishTitle">게시 중입니다</h2><p id="publishMessage">Facebook에 콘텐츠를 전송하고 있습니다.</p></div><strong id="publishPercent">0%</strong></div>
+  <div class="panel-head"><div><h2 id="publishTitle">게시 중입니다</h2><p id="publishMessage">콘텐츠 제작 및 SNS 전송을 준비하고 있습니다.</p></div><strong id="publishPercent">0%</strong></div>
   <div class="panel-body">
     <div class="publishing-progress large"><span id="publishBar" style="width:0%"></span></div>
     <div class="task-table-wrap" style="margin-top:16px">
@@ -33,26 +78,62 @@
   const bar = document.getElementById('publishBar');
   const rows = document.getElementById('publishRows');
   const actions = document.getElementById('publishActions');
+  const modal = document.getElementById('publishMakingModal');
+  const makingPercent = document.getElementById('makingPercent');
+  const makingBar = document.getElementById('makingBar');
+  const makingCopy = document.getElementById('makingCopy');
+  const makingStep = document.getElementById('makingStep');
 
   const escapeHtml = value => String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+  const updateModal = data => {
+    const value = Math.max(0, Math.min(100, Number(data.percent || 0)));
+    makingPercent.textContent = `${value}%`;
+    makingBar.style.width = `${value}%`;
+    if (value < 20) {
+      makingCopy.textContent = '선택한 콘텐츠와 SNS 채널을 분석하고 있습니다.';
+      makingStep.textContent = '콘텐츠 분석';
+    } else if (value < 55) {
+      makingCopy.textContent = '채널에 맞는 게시물과 영상·음성을 제작하고 있습니다.';
+      makingStep.textContent = 'AI 콘텐츠 제작';
+    } else if (value < 90) {
+      makingCopy.textContent = '제작된 콘텐츠를 SNS 채널로 전송하고 있습니다.';
+      makingStep.textContent = 'SNS 전송';
+    } else {
+      makingCopy.textContent = '게시 결과를 확인하고 있습니다.';
+      makingStep.textContent = '마무리 확인';
+    }
+  };
+  const closeModal = () => {
+    makingPercent.textContent = '100%';
+    makingBar.style.width = '100%';
+    makingCopy.textContent = '콘텐츠 제작과 전송이 완료되었습니다.';
+    makingStep.textContent = '완료';
+    window.setTimeout(() => {
+      modal.classList.add('is-done');
+      window.setTimeout(() => { modal.hidden = true; }, 320);
+    }, 350);
+  };
+
   const render = data => {
+    updateModal(data);
     percent.textContent = `${data.percent}%`;
     bar.style.width = `${data.percent}%`;
     rows.innerHTML = data.tasks.map(task => {
       let result = '<span class="muted-text">처리 중</span>';
       if (task.url) result = `<a href="${escapeHtml(task.url)}" target="_blank" rel="noopener">게시물 열기</a>`;
       else if (task.error) result = `<span class="task-error">${escapeHtml(task.error)}</span>`;
-      return `<tr><td><strong>${escapeHtml(task.content)}</strong></td><td>Facebook · ${escapeHtml(task.channel)}</td><td><span class="status-chip status-${escapeHtml(task.status)}">${escapeHtml(task.status_label)}</span></td><td>${result}</td></tr>`;
+      return `<tr><td><strong>${escapeHtml(task.content)}</strong></td><td>${escapeHtml(task.channel)}</td><td><span class="status-chip status-${escapeHtml(task.status)}">${escapeHtml(task.status_label)}</span></td><td>${result}</td></tr>`;
     }).join('');
 
     if (data.done) {
+      closeModal();
       actions.hidden = false;
       if (data.failed || data.connection_required) {
         title.textContent = '게시 결과를 확인해 주세요';
         message.textContent = `성공 ${data.success}건 · 실패 ${data.failed + data.connection_required}건`;
       } else {
         title.textContent = '게시가 완료되었습니다';
-        message.textContent = `Facebook 게시 ${data.success}건이 완료되었습니다.`;
+        message.textContent = `SNS 게시 ${data.success}건이 완료되었습니다.`;
       }
       return true;
     }
@@ -68,6 +149,8 @@
       if (!response.ok) throw new Error(data.message || '게시 상태를 확인하지 못했습니다.');
       if (!render(data)) window.setTimeout(poll, 700);
     } catch (error) {
+      makingCopy.textContent = '처리 상태를 다시 확인하고 있습니다.';
+      makingStep.textContent = '연결 재확인';
       title.textContent = '상태 확인이 지연되고 있습니다';
       message.textContent = error.message;
       window.setTimeout(poll, 1800);
