@@ -6,7 +6,7 @@
     <div>
       <span class="eyebrow">ACTION PREP</span>
       {% if action.platform == 'instagram' and action.action_type == 'post' %}
-        <h1>릴스 제작</h1>
+        <h1>AI 뉴스 릴스 제작</h1>
         <p>대상 콘텐츠: {{ action.title }}</p>
       {% else %}
         <h1>{{ action.get_action_type_display }} 작업 준비</h1>
@@ -19,7 +19,7 @@
   {% if messages %}{% for message in messages %}<div class="notice{% if message.tags == 'error' %} notice-error{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
 
   {% if action.platform == 'instagram' %}
-    <div class="notice">Instagram 성장 작업입니다. 추천 콘텐츠에서 5초 릴스 MP4를 만들고, 함께 생성된 릴스 문구·태그를 복사해 게시에 사용할 수 있습니다.</div>
+    <div class="notice">Instagram 성장 작업입니다. 추천 기사에서 <strong>AI 뉴스 릴스 제작</strong>을 누르면 YouTube Shorts와 같은 뉴스 엔진으로 대표이미지·상단 제목·한국어 TTS·자막·아나운서·제스처 연결이 포함된 세로형 MP4를 만듭니다.</div>
   {% endif %}
 
   <section class="growth-prepare-grid">
@@ -27,7 +27,7 @@
       <div class="growth-section-head"><h2>무엇을 하면 되나요?</h2><p>검색창만 던져주지 않고, 작업에 맞는 준비물을 먼저 보여드립니다.</p></div>
       <div class="growth-prepare-body">
         <div class="growth-action-top"><span class="status-chip status-{{ action.status }}">{{ action.get_status_display }}</span><span class="growth-action-type">{{ action.get_action_type_display }}</span><span class="growth-score">{{ action.priority_score }}점</span></div>
-        {% if action.platform == 'instagram' and action.action_type == 'post' %}<h3>릴스 제작</h3><p class="growth-help"><strong>{{ action.title }}</strong></p>{% else %}<h3>{{ action.title }}</h3>{% endif %}
+        {% if action.platform == 'instagram' and action.action_type == 'post' %}<h3>AI 뉴스 릴스 제작</h3><p class="growth-help"><strong>{{ action.title }}</strong></p>{% else %}<h3>{{ action.title }}</h3>{% endif %}
         <p>{{ action.recommendation_reason }}</p>
         {% if action.suggested_comment %}<div class="growth-comment"><strong>AI 추천 댓글 초안</strong><span>{{ action.suggested_comment }}</span><button type="button" class="button soft button-small copy-comment" data-comment="{{ action.suggested_comment|escapejs }}">복사</button></div>{% endif %}
       </div>
@@ -37,7 +37,7 @@
       <div class="growth-section-head"><h2>{{ account.platform.name|default:action.platform }} 실행 도구</h2><p>작업 종류에 맞는 화면만 엽니다.</p></div>
       <div class="growth-prepare-body">
         {% if action.platform == 'instagram' and action.action_type == 'post' %}
-          <p class="growth-help">아래 추천 콘텐츠 중 하나를 골라 <strong>5초 릴스 제작</strong>을 누르세요. 대표이미지로 세로형 MP4를 만들고 즉시 다운로드합니다.</p>
+          <p class="growth-help">아래 추천 콘텐츠에서 <strong>AI 뉴스 릴스 제작</strong>을 누르세요. 기사 내용을 한국어 뉴스 멘트로 만들고, 음성 길이에 맞춰 아나운서 제스처 영상을 이어 붙여 릴스를 생성합니다.</p>
           <div class="growth-search-buttons">
             <a class="button soft" href="{% url 'growth:instagram_discover' action.pk %}?mode=reels">참고 Reel 탐색</a>
             {% if account %}<a class="button soft" target="_blank" rel="noopener" href="{{ search_links.profile }}">내 Instagram 열기</a>{% endif %}
@@ -85,7 +85,7 @@
             {% if action.platform == 'facebook' %}
               <form method="post" action="{% url 'growth:use_content_for_post' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">본문·이미지로 게시 준비</button></form>
             {% elif action.platform == 'instagram' %}
-              {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 릴스 제작</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
+              {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_instagram_news_reel' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">AI 뉴스 릴스 제작</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
             {% endif %}
           {% elif action.action_type == 'story' %}
             {% if item.representative_image %}<form method="post" action="{% url 'growth:generate_story_video' action.pk item.pk %}">{% csrf_token %}<button class="button primary" type="submit">5초 스토리 영상 만들기</button></form>{% else %}<span class="status-chip status-skipped">대표이미지 필요</span>{% endif %}
