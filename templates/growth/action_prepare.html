@@ -27,7 +27,15 @@
     <article class="growth-section-card">
       <div class="growth-section-head"><h2>{{ account.platform.name|default:action.platform }} 실행 도구</h2><p>작업 종류에 맞는 화면만 엽니다.</p></div>
       <div class="growth-prepare-body">
-        {% if action.action_type == 'post' %}
+        {% if action.platform == 'instagram' %}
+          <p class="growth-help">Instagram 웹 검색은 계정 후보 위주로 보일 수 있어, 게시물·Reels는 공식 API의 해시태그 미디어 탐색으로 SNSGROWUP 안에서 확인합니다.</p>
+          <div class="growth-search-buttons">
+            <a class="button primary" href="{% url 'growth:instagram_discover' action.pk %}?mode=all">게시물 · Reel 후보 보기</a>
+            <a class="button soft" href="{% url 'growth:instagram_discover' action.pk %}?mode=posts">게시물만 보기</a>
+            <a class="button soft" href="{% url 'growth:instagram_discover' action.pk %}?mode=reels">Reels만 보기</a>
+            {% if account %}<a class="button soft" target="_blank" rel="noopener" href="{{ search_links.profile }}">내 Instagram 열기</a>{% endif %}
+          </div>
+        {% elif action.action_type == 'post' %}
           <p class="growth-help">아래 관련 콘텐츠를 선택하면 본문과 대표이미지가 Facebook 게시 미리보기에 자동으로 들어갑니다.</p>
         {% elif action.action_type == 'follow' %}
           <p class="growth-help">공식 연동만으로는 ‘아직 팔로우하지 않은 계정 수’를 자동 집계할 수 없습니다. 허위 숫자를 표시하지 않고, 후보 유형별 검색으로 바로 이동합니다.</p>
