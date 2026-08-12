@@ -46,9 +46,9 @@
       <div class="publish-making-icon">S</div>
       <div class="publish-making-title">콘텐츠를 제작하고 있습니다.</div>
       <div class="publish-making-copy" id="makingCopy">선택한 채널에 맞게 콘텐츠를 준비하고 있습니다.</div>
-      <div class="publish-making-percent" id="makingPercent">0%</div>
-      <div class="publish-making-track"><span id="makingBar"></span></div>
-      <div class="publish-making-step" id="makingStep">작업을 준비하고 있습니다.</div>
+      <div class="publish-making-percent" id="makingPercent">1%</div>
+      <div class="publish-making-track"><span id="makingBar" style="width:1%"></span></div>
+      <div class="publish-making-step" id="makingStep">콘텐츠 분석 · 예상 진행률</div>
     </div>
   </div>
 </div>
@@ -83,39 +83,62 @@
   const makingBar = document.getElementById('makingBar');
   const makingCopy = document.getElementById('makingCopy');
   const makingStep = document.getElementById('makingStep');
+  const startedAt = Date.now();
+  let backendPercent = 0;
+  let visualPercent = 1;
+  let finished = false;
 
-  const escapeHtml = value => String(value || '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
-  const updateModal = data => {
-    const value = Math.max(0, Math.min(100, Number(data.percent || 0)));
-    makingPercent.textContent = `${value}%`;
-    makingBar.style.width = `${value}%`;
-    if (value < 20) {
+  const escapeHtml = value => String(value || '').replace(/[&<>'\"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[char]));
+
+  const estimatedPercent = () => {
+    const elapsed = (Date.now() - startedAt) / 1000;
+    if (elapsed < 4) return 1 + elapsed * 3.5;          // 1 → 15
+    if (elapsed < 14) return 15 + (elapsed - 4) * 2.7; // 15 → 42
+    if (elapsed < 32) return 42 + (elapsed - 14) * 1.9;// 42 → 76
+    if (elapsed < 55) return 76 + (elapsed - 32) * .65;// 76 → 91
+    return Math.min(96, 91 + (elapsed - 55) * .12);     // completion wait
+  };
+
+  const paintModal = value => {
+    const safe = Math.max(1, Math.min(100, Math.round(value)));
+    makingPercent.textContent = `${safe}%`;
+    makingBar.style.width = `${safe}%`;
+    if (safe < 20) {
       makingCopy.textContent = '선택한 콘텐츠와 SNS 채널을 분석하고 있습니다.';
-      makingStep.textContent = '콘텐츠 분석';
-    } else if (value < 55) {
+      makingStep.textContent = '콘텐츠 분석 · 예상 진행률';
+    } else if (safe < 55) {
       makingCopy.textContent = '채널에 맞는 게시물과 영상·음성을 제작하고 있습니다.';
-      makingStep.textContent = 'AI 콘텐츠 제작';
-    } else if (value < 90) {
+      makingStep.textContent = 'AI 콘텐츠 제작 · 예상 진행률';
+    } else if (safe < 90) {
       makingCopy.textContent = '제작된 콘텐츠를 SNS 채널로 전송하고 있습니다.';
-      makingStep.textContent = 'SNS 전송';
+      makingStep.textContent = 'SNS 전송 · 예상 진행률';
     } else {
       makingCopy.textContent = '게시 결과를 확인하고 있습니다.';
-      makingStep.textContent = '마무리 확인';
+      makingStep.textContent = '마무리 확인 · 예상 진행률';
     }
   };
+
+  const animateProgress = () => {
+    if (finished) return;
+    const target = Math.max(backendPercent, estimatedPercent());
+    visualPercent = Math.max(visualPercent, Math.min(96, target));
+    paintModal(visualPercent);
+    window.setTimeout(animateProgress, 250);
+  };
+
   const closeModal = () => {
-    makingPercent.textContent = '100%';
-    makingBar.style.width = '100%';
+    finished = true;
+    paintModal(100);
     makingCopy.textContent = '콘텐츠 제작과 전송이 완료되었습니다.';
     makingStep.textContent = '완료';
     window.setTimeout(() => {
       modal.classList.add('is-done');
       window.setTimeout(() => { modal.hidden = true; }, 320);
-    }, 350);
+    }, 450);
   };
 
   const render = data => {
-    updateModal(data);
+    backendPercent = Math.max(backendPercent, Number(data.percent || 0));
     percent.textContent = `${data.percent}%`;
     bar.style.width = `${data.percent}%`;
     rows.innerHTML = data.tasks.map(task => {
@@ -150,12 +173,14 @@
       if (!render(data)) window.setTimeout(poll, 700);
     } catch (error) {
       makingCopy.textContent = '처리 상태를 다시 확인하고 있습니다.';
-      makingStep.textContent = '연결 재확인';
+      makingStep.textContent = '연결 재확인 · 예상 진행률';
       title.textContent = '상태 확인이 지연되고 있습니다';
       message.textContent = error.message;
       window.setTimeout(poll, 1800);
     }
   };
+
+  animateProgress();
   poll();
 })();
 </script>
