@@ -244,6 +244,150 @@ def _configured_anchor_video(*, task_id: int) -> Path | None:
     return candidates[(max(int(task_id), 1) - 1) % len(candidates)]
 
 
+def _media_duration(path: Path) -> float:
+    """Return media duration in seconds using ffprobe."""
+    process = subprocess.run(
+        [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if process.returncode != 0:
+        raise ShortsGenerationError(
+            f"미디어 길이를 확인하지 못했습니다: {process.stderr[-500:]}"
+        )
+    try:
+        return max(float(process.stdout.strip()), 0.1)
+    except (TypeError, ValueError):
+        raise ShortsGenerationError(
+            f"미디어 길이 값이 올바르지 않습니다: {process.stdout!r}"
+        )
+
+
+def _stitch_anchor_videos(
+    *,
+    candidates: list[Path],
+    task_id: int,
+    target_duration: float,
+    output_path: Path,
+) -> None:
+    """Join gesture clips once each with a subtle crossfade.
+
+    Clips do not immediately repeat. Enough consecutive gesture variants are
+    selected to cover the TTS duration. The last frame is held only when every
+    available gesture clip is still shorter than the requested duration.
+    """
+    if not candidates:
+        raise ShortsGenerationError("연결할 앵커 제스처 영상이 없습니다.")
+
+    transition = 0.18
+    start_index = (max(int(task_id), 1) - 1) % len(candidates)
+
+    ordered = [
+        candidates[(start_index + offset) % len(candidates)]
+        for offset in range(len(candidates))
+    ]
+
+    selected: list[Path] = []
+    durations: list[float] = []
+    covered = 0.0
+
+    for path in ordered:
+        duration = _media_duration(path)
+        selected.append(path)
+        durations.append(duration)
+
+        if len(selected) == 1:
+            covered = duration
+        else:
+            covered += max(duration - transition, 0.1)
+
+        if covered >= target_duration:
+            break
+
+    command = ["ffmpeg", "-y"]
+
+    for path in selected:
+        command += ["-i", str(path)]
+
+    filters: list[str] = []
+
+    # DeeVid clips may not always have exactly identical dimensions.
+    # Normalize every clip before xfade.
+    for index in range(len(selected)):
+        filters.append(
+            f"[{index}:v]"
+            "fps=30,"
+            "scale=594:1002:force_original_aspect_ratio=decrease:flags=lanczos,"
+            "pad=594:1002:(ow-iw)/2:(oh-ih)/2:color=0x00FF00,"
+            "setsar=1,settb=AVTB,setpts=PTS-STARTPTS,"
+            "format=yuv420p"
+            f"[a{index}]"
+        )
+
+    if len(selected) == 1:
+        current = "a0"
+    else:
+        current = "a0"
+        timeline = durations[0]
+
+        for index in range(1, len(selected)):
+            offset = max(timeline - transition, 0.0)
+            out = f"x{index}"
+
+            filters.append(
+                f"[{current}][a{index}]"
+                f"xfade=transition=fade:duration={transition:.3f}:"
+                f"offset={offset:.3f}"
+                f"[{out}]"
+            )
+
+            current = out
+            timeline += durations[index] - transition
+
+    # Never restart the first clip. If all gesture clips are exhausted,
+    # hold the final pose for the tiny remaining tail instead.
+    filters.append(
+        f"[{current}]"
+        f"tpad=stop_mode=clone:stop_duration={target_duration:.3f},"
+        f"trim=duration={target_duration:.3f},"
+        "setpts=PTS-STARTPTS"
+        "[anchorout]"
+    )
+
+    command += [
+        "-filter_complex", ";".join(filters),
+        "-map", "[anchorout]",
+        "-an",
+        "-t", f"{target_duration:.3f}",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+    process = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    if process.returncode != 0 or not output_path.exists():
+        raise ShortsGenerationError(
+            "앵커 제스처 영상 연결에 실패했습니다: "
+            + process.stderr[-1200:]
+        )
+
+
 def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
     """Create a static-background 10-second vertical news Short."""
     if not content.representative_image:
@@ -257,7 +401,7 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"youtube-short-{task_id}.mp4"
     script = _short_script(title=content.title, body=content.body)
-    anchor_video_path = _configured_anchor_video(task_id=task_id)
+    anchor_candidates = _anchor_video_candidates()
 
     with tempfile.TemporaryDirectory(prefix="snsgrowup-short-") as temp_dir:
         temp_dir = Path(temp_dir)
@@ -269,8 +413,27 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
 
         _image_jpeg(image_path, jpg_path)
         _speech_mp3(text=script, output_path=speech_path)
+
+        speech_duration = _media_duration(speech_path)
+
+        # Leave a short visual tail after the final spoken syllable.
+        # The Short is no longer forcibly cut at exactly 10 seconds.
+        short_duration = min(max(speech_duration + 0.35, 5.0), 15.0)
+
+        anchor_video_path = None
+
+        if anchor_candidates:
+            anchor_video_path = temp_dir / "anchor-sequence.mp4"
+            _stitch_anchor_videos(
+                candidates=anchor_candidates,
+                task_id=task_id,
+                target_duration=short_duration,
+                output_path=anchor_video_path,
+            )
+
         _make_title_bar(title=content.title, output_path=title_path)
         _make_caption(script=script, output_path=caption_path)
+
         if not anchor_video_path:
             _make_anchor_card(output_path=anchor_path)
 
@@ -319,11 +482,11 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
         command += [
             "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "4:a:0",
-            "-t", "10",
+            "-t", f"{short_duration:.3f}",
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "160k",
-            "-af", "apad=pad_dur=10",
+            "-af", f"apad=pad_dur={short_duration:.3f}",
             "-movflags", "+faststart",
             str(output_path),
         ]
