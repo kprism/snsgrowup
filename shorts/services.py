@@ -289,7 +289,7 @@ def generate_news_short(*, content, task_id: int) -> tuple[Path, str]:
         ]
 
         if anchor_video_path:
-            command += ["-stream_loop", "-1", "-i", str(anchor_video_path)]
+            command += ["-i", str(anchor_video_path)]
             anchor_has_alpha = os.getenv("SHORTS_ANCHOR_HAS_ALPHA", "0").strip().lower() in {"1", "true", "yes", "on"}
             if anchor_has_alpha:
                 anchor_filter = "[3:v]fps=30,scale=430:-1:flags=lanczos:force_original_aspect_ratio=decrease,format=rgba[anchor]"
