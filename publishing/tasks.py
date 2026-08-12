@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import time
+from collections import Counter
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
@@ -280,12 +282,64 @@ def _youtube_access_token(channel) -> str:
     return channel.access_token
 
 
-def _youtube_upload(*, access_token: str, video_path: Path, title: str, description: str) -> dict:
+_YOUTUBE_TAG_STOPWORDS = {
+    "대한", "관련", "통해", "위해", "이번", "오는", "지난", "기자", "뉴스", "밝혔습니다",
+    "밝혔다", "예정", "진행", "개최", "운영", "추진", "그리고", "하지만", "있습니다", "했습니다",
+}
+_YOUTUBE_TAG_SUFFIXES = ("에서", "으로", "에게", "까지", "부터", "에는", "으로는", "이라는", "이라고", "이라며", "의", "은", "는", "이", "가", "을", "를", "와", "과", "도")
+
+
+def _normalize_youtube_tag(token: str) -> str:
+    value = token.strip("-_.,·'\"()[]{}<>:;!?/\\")
+    for suffix in _YOUTUBE_TAG_SUFFIXES:
+        if len(value) >= 4 and value.endswith(suffix):
+            value = value[: -len(suffix)]
+            break
+    return value[:30]
+
+
+def _youtube_tags(*, title: str, body: str, payload: dict) -> list[str]:
+    """Extract stable per-article YouTube tags without an extra AI/API call."""
+    tags: list[str] = ["Shorts", "SNSGROWUP", "뉴스"]
+
+    existing_hashtags = re.findall(r"#([0-9A-Za-z가-힣_\-]{2,30})", str(payload.get("hashtags") or ""))
+    tags.extend(existing_hashtags)
+
+    title_tokens = re.findall(r"[0-9A-Za-z가-힣]{2,30}", title or "")
+    body_tokens = re.findall(r"[0-9A-Za-z가-힣]{2,30}", (body or "")[:2500])
+    weighted = Counter()
+    for token in title_tokens:
+        normalized = _normalize_youtube_tag(token)
+        if len(normalized) >= 2 and normalized not in _YOUTUBE_TAG_STOPWORDS:
+            weighted[normalized] += 5
+    for token in body_tokens:
+        normalized = _normalize_youtube_tag(token)
+        if len(normalized) >= 2 and normalized not in _YOUTUBE_TAG_STOPWORDS:
+            weighted[normalized] += 1
+
+    tags.extend(tag for tag, _score in weighted.most_common(12))
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        clean = re.sub(r"\s+", " ", str(tag)).strip().lstrip("#")
+        key = clean.casefold()
+        if not clean or key in seen:
+            continue
+        seen.add(key)
+        unique.append(clean[:30])
+        if len(unique) >= 12:
+            break
+    return unique
+
+
+def _youtube_upload(*, access_token: str, video_path: Path, title: str, description: str, tags: list[str] | None = None) -> dict:
     metadata = {
         "snippet": {
             "title": title[:100],
             "description": description[:5000],
             "categoryId": "25",
+            "tags": list(tags or [])[:12],
         },
         "status": {
             "privacyStatus": "public",
@@ -350,11 +404,17 @@ def publish_youtube_short_task(self, publishing_task_id: int, queue_id: int | No
     try:
         video_path, script = generate_news_short(content=task.content, task_id=task.pk)
         token = _youtube_access_token(task.channel)
+        tags = _youtube_tags(
+            title=task.content.title,
+            body=task.content.body,
+            payload=payload,
+        )
+        hashtags = " ".join(f"#{tag.replace(' ', '')}" for tag in tags if tag != "SNSGROWUP")
         description_parts = [
             script,
             str(payload.get("message") or "").strip(),
             str(payload.get("link") or task.content.source_url or "").strip(),
-            "#Shorts",
+            hashtags,
         ]
         description = "\n\n".join(part for part in description_parts if part)
         result = _youtube_upload(
@@ -362,6 +422,7 @@ def publish_youtube_short_task(self, publishing_task_id: int, queue_id: int | No
             video_path=video_path,
             title=task.content.title,
             description=description,
+            tags=tags,
         )
         video_id = str(result.get("id") or "")
         if not video_id:
@@ -369,6 +430,8 @@ def publish_youtube_short_task(self, publishing_task_id: int, queue_id: int | No
         payload["youtube_short_script"] = script
         payload["generated_video"] = str(video_path.relative_to(settings.MEDIA_ROOT))
         payload["youtube_privacy"] = "public"
+        payload["youtube_tags"] = tags
+        payload["youtube_hashtags"] = hashtags
         task.payload = payload
         task.save(update_fields=["payload", "updated_at"])
         return _finish_task(task, queue_id, video_id, f"https://www.youtube.com/watch?v={video_id}")
