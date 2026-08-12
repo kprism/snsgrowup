@@ -326,7 +326,7 @@ def _stitch_anchor_videos(
             "fps=30,"
             "scale=594:1002:force_original_aspect_ratio=decrease:flags=lanczos,"
             "pad=594:1002:(ow-iw)/2:(oh-ih)/2:color=0x00FF00,"
-            "setsar=1,settb=AVTB,setpts=PTS-STARTPTS,"
+            "setsar=1,settb=AVTB,setpts=N/(30*TB),"
             "format=yuv420p"
             f"[a{index}]"
         )
@@ -341,10 +341,23 @@ def _stitch_anchor_videos(
             offset = max(timeline - transition, 0.0)
             out = f"x{index}"
 
+            raw_out = f"xfraw{index}"
+
             filters.append(
                 f"[{current}][a{index}]"
                 f"xfade=transition=fade:duration={transition:.3f}:"
                 f"offset={offset:.3f}"
+                f"[{raw_out}]"
+            )
+
+            # xfade output can lose its declared frame-rate metadata.
+            # Normalize it again before feeding it into another xfade.
+            filters.append(
+                f"[{raw_out}]"
+                "fps=30,"
+                "settb=AVTB,"
+                "setpts=N/(30*TB),"
+                "format=yuv420p"
                 f"[{out}]"
             )
 
