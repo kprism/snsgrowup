@@ -54,27 +54,37 @@ def _graph_get(path: str, *, params: dict) -> dict:
 
 
 def _recent_media(*, hashtag_id: str, ig_user_id: str, token: str) -> dict:
+    """Fetch hashtag media using only fields supported by the hashtag edge.
+
+    The set of fields exposed by Instagram hashtag discovery is narrower than
+    the fields exposed for media owned by the authenticated account. In
+    particular, media_product_type, username and thumbnail_url can trigger
+    Graph API error #100 on hashtag recent_media. Try progressively smaller
+    field sets so API-version differences do not break discovery completely.
+    """
     base = {
         "user_id": ig_user_id,
         "limit": 30,
         "access_token": token,
     }
-    rich_fields = "id,caption,media_type,media_product_type,permalink,timestamp,username,thumbnail_url"
-    try:
-        return _graph_get(
-            f"{hashtag_id}/recent_media",
-            params={**base, "fields": rich_fields},
-        )
-    except ValueError:
-        # 일부 Graph API 버전/계정 조합에서 media_product_type 또는 username 필드가
-        # 허용되지 않을 수 있으므로 최소 필드로 한 번 더 시도한다.
-        return _graph_get(
-            f"{hashtag_id}/recent_media",
-            params={
-                **base,
-                "fields": "id,caption,media_type,permalink,timestamp,thumbnail_url",
-            },
-        )
+    field_sets = [
+        "id,caption,media_type,media_url,permalink,timestamp",
+        "id,caption,media_type,permalink,timestamp",
+        "id,caption,media_type,permalink",
+        "id,media_type,permalink",
+    ]
+    last_error: Exception | None = None
+    for fields in field_sets:
+        try:
+            return _graph_get(
+                f"{hashtag_id}/recent_media",
+                params={**base, "fields": fields},
+            )
+        except ValueError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    return {"data": []}
 
 
 def _discover_hashtag_media(*, account: SocialAccount, hashtag: str) -> list[dict]:
@@ -100,9 +110,17 @@ def _discover_hashtag_media(*, account: SocialAccount, hashtag: str) -> list[dic
         if not isinstance(row, dict):
             continue
         media_type = str(row.get("media_type") or "").upper()
-        product_type = str(row.get("media_product_type") or "").upper()
-        row["is_reel"] = product_type == "REELS" or media_type == "VIDEO"
-        row["display_image"] = row.get("thumbnail_url") or ""
+        permalink = str(row.get("permalink") or "")
+
+        # Hashtag discovery does not reliably expose media_product_type.
+        # Instagram Reel permalinks contain /reel/; VIDEO is also kept as a
+        # Reel/video candidate so useful video results are not discarded.
+        row["is_reel"] = "/reel/" in permalink.lower() or media_type == "VIDEO"
+
+        # media_url can be rendered directly for image results. Hashtag media
+        # does not consistently expose thumbnail_url for third-party videos.
+        row["display_image"] = row.get("media_url") if media_type == "IMAGE" else ""
+        row["display_account"] = "Instagram 공개 게시물"
         results.append(row)
     return results
 
