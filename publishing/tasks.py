@@ -288,8 +288,7 @@ def _youtube_upload(*, access_token: str, video_path: Path, title: str, descript
             "categoryId": "25",
         },
         "status": {
-            # Unverified API projects are restricted to private uploads by YouTube.
-            "privacyStatus": "private",
+            "privacyStatus": "public",
             "selfDeclaredMadeForKids": False,
         },
     }
@@ -369,7 +368,7 @@ def publish_youtube_short_task(self, publishing_task_id: int, queue_id: int | No
             raise ValueError("YouTube가 업로드된 영상 ID를 반환하지 않았습니다.")
         payload["youtube_short_script"] = script
         payload["generated_video"] = str(video_path.relative_to(settings.MEDIA_ROOT))
-        payload["youtube_privacy"] = "private"
+        payload["youtube_privacy"] = "public"
         task.payload = payload
         task.save(update_fields=["payload", "updated_at"])
         return _finish_task(task, queue_id, video_id, f"https://www.youtube.com/watch?v={video_id}")
